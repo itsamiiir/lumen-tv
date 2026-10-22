@@ -152,7 +152,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // The row moves on by itself every 10 s (any key restarts the count); the page dots show the time left.
     private static final long AUTO_MS = 10_000;
     private static final float DOTS_CY = 792;   // between the cards (bottom 742) and the shelf (top ~841)
-    private long autoFrom;
+    private long autoFrom, lastKeyAt;
+    // After 2 minutes without a key the row stops moving (and the home screen goes back to doing nothing) until the
+    // next key; the screensaver takes over at 10 minutes anyway.
+    private static final long AUTO_IDLE_MS = 120_000;
+    private boolean autoStopped;
     private final Runnable autoTick = this::autoTick;
     private boolean rowDirect;
     private final Spring rowScroll = new Spring(0.42f, 0.88f, 0), wideAt = new Spring(0.36f, 0.86f, 0);
@@ -186,6 +190,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         TILE_STYLE.put("max", new int[] {0xFF5C30E8, 0xFF221684, 0});
         TILE_STYLE.put("appletv", new int[] {0xFF1C1C1E, 0xFF000000, 1});   // black, white logo
         TILE_STYLE.put("spotify", new int[] {0xFF161616, 0xFF000000, 0});   // black, its green logo
+        TILE_STYLE.put("stremio", new int[] {0xFF8F6BFF, 0xFF5530D9, 3});   // Stremio purple, white logo (triangle cut out)
     }
     private final android.graphics.PorterDuffColorFilter whiteLogo =
             new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -443,7 +448,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         motionDirty = true;
         invalidateAll();
         idle = false;
-        autoFrom = SystemClock.uptimeMillis();
+        autoFrom = lastKeyAt = SystemClock.uptimeMillis();
+        autoStopped = false;
         handler.post(autoTick);
         Choreographer.getInstance().postFrameCallback(this);
         spoken.readAgain();
@@ -1540,7 +1546,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 int p = px[y * w + x], a = p >>> 24, r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
-                if (a > 128 && r > 150 && g < 100 && b < 130) {
+                int hi = Math.max(r, Math.max(g, b)), lo = Math.min(r, Math.min(g, b));
+                if (a > 128 && hi > 110 && hi - lo > 90) {   // a strongly colored pixel: YouTube's red, Stremio's purple
                     x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
                 }
             }
@@ -2125,7 +2132,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** 0 to 1: how far into this suggestion's 10 s we are (0 while paused). */
     private float autoProgress() {
-        if (autoPaused()) return 0;
+        if (autoStopped || autoPaused()) return 0;
         return Ui.clamp((SystemClock.uptimeMillis() - autoFrom) / (float) AUTO_MS);
     }
 
@@ -2134,6 +2141,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(autoTick);
         if (!running) return;
         long now = SystemClock.uptimeMillis();
+        if (now - lastKeyAt > AUTO_IDLE_MS) {
+            autoStopped = true;      // no more ticks until a key
+            dotsLayer.invalidate();
+            return;
+        }
         if (autoPaused()) {
             autoFrom = now;
             dotsLayer.invalidate();
@@ -2306,7 +2318,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     boolean onKey(KeyEvent e) {
         wake();
-        autoFrom = SystemClock.uptimeMillis();   // any key: the current suggestion gets its full 10 s again
+        autoFrom = lastKeyAt = SystemClock.uptimeMillis();   // any key: the current suggestion gets its full 10 s again
+        if (autoStopped && running) {
+            autoStopped = false;
+            handler.post(autoTick);
+        }
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
         if (pickingWall) return wallKey(e, down);

@@ -59,7 +59,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -405,12 +405,15 @@ final class Recs {
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
                 + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
-                + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
+                + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "")
+                + (ORIGIN.isEmpty() ? "" : "&with_origin_country=" + ORIGIN);
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
         for (String kind : new String[] {"movie", "tv"}) {
-            JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
+            // With a country set, its most popular titles right now instead (trending is worldwide).
+            JSONArray hot = ORIGIN.isEmpty() ? get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results")
+                    : get("/discover/" + kind + "?vote_count.gte=10" + common).getJSONArray("results");
             List<Pick> candidates = new ArrayList<>();
             for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
             for (Pick pick : candidates) {
@@ -442,6 +445,9 @@ final class Recs {
         listAt = System.currentTimeMillis();
         listLanguage = Ui.language;
     }
+
+    /** Only titles made in this country (config.properties "tmdb_origin", e.g. IN); empty = from anywhere. */
+    private static final String ORIGIN = Config.TMDB_ORIGIN.trim().toUpperCase(Locale.ROOT);
 
     /** Language of titles and genres; the services come from the region. */
     private static String lang() {
