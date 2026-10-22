@@ -27,6 +27,21 @@ final class Scene {
     private final Paint liquidPaint = new Paint();
     private final Paint flatFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint flatRim = new Paint(Paint.ANTI_ALIAS_FLAG);
+    // Android 9 to 12 (no AGSL): frosted glass from the blurred background image, a tint, a sheen and a lit rim.
+    // Unit gradients moved with a local matrix, so nothing is allocated while drawing.
+    private final Paint frostFill = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+    private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+    private final android.graphics.Matrix frostMatrix = new android.graphics.Matrix(), unitMatrix = new android.graphics.Matrix();
+    // Both run corner to corner (top left → bottom right): light catches the top-left edge, fades along the sides and
+    // comes back faintly at the bottom right, like glass lit from above. The sheen is barely there.
+    private final LinearGradient sheenShader = new LinearGradient(0, 0, 1, 1,
+            new int[] {0x2EFFFFFF, 0x0AFFFFFF, 0x00FFFFFF}, new float[] {0, 0.3f, 0.75f}, Shader.TileMode.CLAMP);
+    private final LinearGradient rimShader = new LinearGradient(0, 0, 1, 1,
+            new int[] {0x73FFFFFF, 0x1AFFFFFF, 0x0AFFFFFF, 0x2EFFFFFF}, new float[] {0, 0.35f, 0.7f, 1}, Shader.TileMode.CLAMP);
+    private BitmapShader frostShader;
+    private final Paint innerEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF inner = new RectF();
+    private float offX, offY;
     private final Paint fallback = new Paint();
     private final Recording auroraNode = Recording.create("aurora");
     // The layer is drawn at a quarter size and scaled up: filtered, its soft shapes stay soft instead of stepping.
@@ -59,8 +74,13 @@ final class Scene {
         }
         auroraNode.setUseCompositingLayer(true, layerPaint);
         flatRim.setStyle(Paint.Style.STROKE);
-        flatRim.setColor(0x33FFFFFF);
-        flatRim.setStrokeWidth(1.5f);
+        flatRim.setColor(0xFFFFFFFF);
+        flatRim.setStrokeWidth(0.8f);   // a hairline: soft, not an outline
+        flatRim.setShader(rimShader);
+        sheen.setShader(sheenShader);
+        innerEdge.setStyle(Paint.Style.STROKE);
+        innerEdge.setStrokeWidth(1.2f);
+        innerEdge.setColor(0x24000000);
     }
 
     void setSize(int width, int height) {
@@ -167,7 +187,7 @@ final class Scene {
                 float specular, float alpha) {
         if (alpha <= 0.004f) return;
         if (liquid == null) {
-            glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
+            glass(c, r, radius, tint, tintAlpha, 0, 0, lift, 1, alpha);
             return;
         }
         liquid.setFloatUniform("center", r.centerX(), r.centerY());
@@ -188,7 +208,12 @@ final class Scene {
         if (frostImage == null) frostImage = Bitmap.createBitmap(Backdrop.FW, Backdrop.FH, Bitmap.Config.ARGB_8888);
         frostImage.setPixels(pixels, 0, Backdrop.FW, 0, 0, Backdrop.FW, Backdrop.FH);
         imageFrost = true;
-        if (glass == null) return;
+        if (glass == null) {
+            // A BitmapShader keeps the pixels as they were when created: a new one for each new image.
+            frostShader = new BitmapShader(frostImage, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            frostFill.setShader(frostShader);
+            return;
+        }
         BitmapShader s = new BitmapShader(frostImage, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
         s.setFilterMode(BitmapShader.FILTER_MODE_LINEAR);
         glass.setInputShader("frost", s);
@@ -210,6 +235,8 @@ final class Scene {
 
     /** Offset (px) of the layer that will draw glass, if it was moved on screen without being redrawn. */
     void setOffset(float x, float y) {
+        offX = x;
+        offY = y;
         if (glass != null) glass.setFloatUniform("offset", x, y);
         if (liquid != null) liquid.setFloatUniform("offset", x, y);
     }
@@ -249,15 +276,56 @@ final class Scene {
         glass(c, r, radius, tint, tintAlpha, glow, glowAlpha, lift, body, 1);
     }
 
+    /**
+     * The glass without shaders: the blurred background exactly behind it (the frost image, scaled to the screen and
+     * moved with the layer), a thin tint so it stays see-through, a faint lift, a barely-there diagonal sheen and a
+     * hairline rim that catches the light at the top left. A few plain draws, the cost of drawing one picture.
+     */
+    private void flatGlass(Canvas c, RectF r, float radius, int tint, float tintAlpha, float lift, float body, float alpha) {
+        int a = Math.round(255 * Math.min(1, alpha));
+        if (body > 0) {
+            boolean frosted = imageFrost && frostShader != null;
+            if (frosted) {
+                frostMatrix.setScale((float) w / Backdrop.FW, (float) h / Backdrop.FH);
+                frostMatrix.postTranslate(-offX, -offY);
+                frostShader.setLocalMatrix(frostMatrix);
+                frostFill.setAlpha(a);
+                c.drawRoundRect(r, radius, radius, frostFill);
+            }
+            // Over the frost, a thin tint: the blurred colors do the work (a thick one reads as plastic).
+            float t = frosted ? tintAlpha * 0.45f : Math.max(0.35f, tintAlpha);
+            flatFill.setColor(Ui.alpha(tint | 0xFF000000, t * Math.min(1, alpha)));
+            c.drawRoundRect(r, radius, radius, flatFill);
+            if (frosted && lift > 0) {
+                flatFill.setColor(Ui.alpha(0xFFFFFFFF, Math.min(0.04f, lift * 0.5f) * Math.min(1, alpha)));
+                c.drawRoundRect(r, radius, radius, flatFill);
+            }
+            unitMatrix.setScale(Math.max(1, r.width()), Math.max(1, r.height()));
+            unitMatrix.postTranslate(r.left, r.top);
+            sheenShader.setLocalMatrix(unitMatrix);
+            sheen.setAlpha(a);
+            c.drawRoundRect(r, radius, radius, sheen);
+        }
+        // Corner to corner, but never flatter than a square: on the wide shelf the light still reaches the top edge.
+        float side = Math.max(r.width(), r.height());
+        unitMatrix.setScale(side, side);
+        unitMatrix.postTranslate(r.left, r.top);
+        rimShader.setLocalMatrix(unitMatrix);
+        flatRim.setAlpha(a);
+        c.drawRoundRect(r, radius, radius, flatRim);
+        // Just inside the lit rim, a faint dark line: the glass's thickness.
+        if (body > 0) {
+            inner.set(r.left + 1.5f, r.top + 1.5f, r.right - 1.5f, r.bottom - 1.5f);
+            innerEdge.setAlpha(Math.round(0x24 * Math.min(1, alpha)));
+            c.drawRoundRect(inner, Math.max(0, radius - 1.5f), Math.max(0, radius - 1.5f), innerEdge);
+        }
+    }
+
     /** Same, with an opacity (0 to 1) for the whole glass. */
     void glass(Canvas c, RectF r, float radius, int tint, float tintAlpha, int glow, float glowAlpha, float lift, float body, float alpha) {
         if (alpha <= 0.004f) return;
         if (glass == null) {
-            if (body > 0) {
-                flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.max(0.35f, tintAlpha)));
-                c.drawRoundRect(r, radius, radius, flatFill);
-            }
-            c.drawRoundRect(r, radius, radius, flatRim);
+            flatGlass(c, r, radius, tint, tintAlpha, lift, body, alpha);
             return;
         }
         float hw = r.width() / 2, hh = r.height() / 2, inner = Math.min(hw, hh);

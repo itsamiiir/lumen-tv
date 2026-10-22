@@ -38,6 +38,8 @@ import java.util.concurrent.Executors;
  *  - bottom left, the photo's caption: the time-of-day label ("TONIGHT"), the title, and genre · runtime · service.
  * Dark scrims only where there is text, stronger where the photo is bright. Any key exits (as on Apple TV).
  * Without photos (no TMDB key, or before the first fetch): the big clock over the night aurora.
+ * With a wallpaper chosen (Home Settings or the home screen's Wallpaper button): the big clock over that wallpaper,
+ * drifting slowly, instead of the photos or the aurora.
  */
 final class DreamView extends View implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
     private static final long SHOW_MS = 30_000, FADE_MS = 3_000, FIRST_MS = 1_600;
@@ -164,7 +166,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         startedAt = clock();
         lastFrame = 0;
         failed.clear();
-        fallback = recs.showcase().isEmpty();
+        fallback = recs.showcase().isEmpty() || wallpaperMode();
         data.addListener(this);
         recs.addListener(this);
         data.refreshIfStale();
@@ -224,14 +226,19 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         // Without photos (the clock over the aurora).
         datePaint = Ui.text(Ui.semibold, 36 * k, 0xD9FFFFFF);
         datePaint.setTextAlign(Paint.Align.CENTER);
-        clockPaint = Ui.numbers(Ui.thin, 280 * k, 0xF2FFFFFF);
+        // The home screen's clock: Inter Display Semibold, fixed-width digits, the colon centered on them.
+        clockPaint = Ui.numbers(Ui.displaySemibold, 260 * k, 0xF7FFFFFF);
+        clockPaint.setFontFeatureSettings("'tnum', 'case'");
         clockPaint.setTextAlign(Paint.Align.CENTER);
-        clockPaint.setLetterSpacing(-0.01f);
+        clockPaint.setLetterSpacing(-0.02f);
         weatherPaint = Ui.numbers(Ui.medium, 30 * k, 0xC7FFFFFF);
-        weatherDim = Ui.numbers(Ui.regular, 28 * k, 0x80FFFFFF);
+        weatherDim = Ui.numbers(Ui.regular, 28 * k, 0xB3FFFFFF);
         quotePaint = Ui.numbers(Ui.medium, 24 * k, 0x99FFFFFF);
         stalePaint = Ui.text(Ui.regular, 20 * k, 0x59FFFFFF);
         stalePaint.setTextAlign(Paint.Align.CENTER);
+        // Soft shadows, so the clock reads on any wallpaper.
+        clockPaint.setShadowLayer(32 * k, 0, 3 * k, 0x73000000);
+        for (Paint p : new Paint[] {datePaint, weatherPaint, weatherDim, quotePaint}) p.setShadowLayer(14 * k, 0, 2 * k, 0x66000000);
         // With photos: the corner (date, clock, prices) and the caption.
         cornerDate = Ui.numbers(Ui.semibold, 30 * k, 0xEBFFFFFF);
         cornerQuote = Ui.numbers(Ui.regular, 23 * k, 0xC7FFFFFF);
@@ -256,7 +263,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
 
     /** Loads the next photo in the background (one at a time); once ready, it comes in at the right moment. */
     private void prepareNext() {
-        if (!running || decoding || prepared != null) return;
+        if (!running || decoding || prepared != null || wallpaperMode()) return;
         List<Recs.Pick> list = recs.showcase();
         if (list.isEmpty()) return;
         Slide last = incoming != null ? incoming : current;
@@ -724,7 +731,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             lastSky = up;
             scene.advance(timeOffset + t);
         }
-        scene.drawBackground(canvas);
+        if (!drawWallpaper(canvas, t)) scene.drawBackground(canvas);
         if (dirty) {
             Canvas rc = content.beginRecording(w, h);
             try {
@@ -739,6 +746,33 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         content.setTranslationY((float) (26 * k * Math.sin(2 * phase + 0.7)));
         content.setAlpha(alpha);
         content.draw(canvas);
+    }
+
+    /** A wallpaper is chosen: the screensaver shows it instead of the recommendations' photos. */
+    private static boolean wallpaperMode() {
+        return !Prefs.wallpaper().equals("none");
+    }
+
+    private final Paint wallPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+    private final android.graphics.RectF wallRect = new android.graphics.RectF();
+
+    /**
+     * The chosen wallpaper (the home screen's, usually already built in this process), zoomed 6% and drifting slowly
+     * the other way from the clock, a little dimmed so it stays calm. False while it isn't ready (the aurora shows).
+     */
+    private boolean drawWallpaper(Canvas canvas, float t) {
+        if (!wallpaperMode()) return false;
+        Backdrop b = Wallpapers.get(getContext(), this::invalidate);
+        if (b == null || b.sharp == null) return false;
+        double phase = 2 * Math.PI * t / DRIFT_PERIOD_S;
+        float zoom = 1.06f, dx = (float) (-0.02f * w * Math.sin(phase)), dy = (float) (-0.015f * h * Math.sin(2 * phase + 0.7));
+        float ww = w * zoom, hh = h * zoom;
+        wallRect.set((w - ww) / 2 + dx, (h - hh) / 2 + dy, (w + ww) / 2 + dx, (h + hh) / 2 + dy);
+        canvas.drawBitmap(b.sharp, null, wallRect, wallPaint);
+        black.setColor(0x52000000);   // a calm dim, so the white clock reads anywhere
+        canvas.drawRect(0, 0, w, h, black);
+        black.setColor(0xFF000000);
+        return true;
     }
 
     private void drawContent(Canvas c) {

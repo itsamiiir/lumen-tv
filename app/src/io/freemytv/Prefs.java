@@ -90,6 +90,22 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** One of Wallpapers.IDS ("none" = the plain background, or the picks' photos with a TMDB key). */
+    static String wallpaper() {
+        String v = sp().getString("wallpaper", "none");
+        return java.util.Arrays.asList(Wallpapers.IDS).contains(v) || v.startsWith(Wallpapers.PHOTO) ? v : "none";
+    }
+
+    static void setWallpaper(String v) { put("wallpaper", v); }
+
+    /** One of Click.STYLES: the home screen's sounds ("press" by default on this TV). */
+    static String soundStyle() {
+        String v = sp().getString("sound_style", "press");
+        return java.util.Arrays.asList(Click.STYLES).contains(v) ? v : "press";
+    }
+
+    static void setSoundStyle(String v) { put("sound_style", v); }
+
     // MARK: - City
 
     static String city() { return sp().getString("city", Config.CITY).trim(); }

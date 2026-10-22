@@ -209,6 +209,7 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 ## Credits
 
 - Built with [Claude Code](https://claude.com/claude-code).
+- Home screen sounds (Press, Glass, Bubble, Mech): rendered from [cuelume](https://github.com/danielwh2/cuelume) by Daniel Belyi (MIT); licence in `app/assets/sfx/LICENSE-cuelume.txt`.
 - The LG version builds on what [@danielthejoker18](https://github.com/danielthejoker18) found in [FreeMyTvWebOS](https://github.com/danielthejoker18/FreeMyTvWebOS) (MIT): installing through Developer Mode and opening apps through the TV's service bus.
 - On Samsung TVs it installs with [TizenBrew Installer](https://github.com/reisxd/TizenBrewInstaller) by [@reisxd](https://github.com/reisxd).
 - This product uses the TMDB API but is not endorsed or certified by [TMDB](https://www.themoviedb.org/).

@@ -56,7 +56,7 @@ final class HomeMode {
      * your brand's, see the README). The TV's own home screen and screensaver are added at switch time.
      */
     static final String[] DEBLOAT = {
-        "com.google.android.play.games", "com.google.android.youtube.tvmusic",        // Play Games, YouTube Music
+        "com.google.android.play.games",                                              // Play Games (YouTube Music kept: in use)
         // TCL
         "com.tcl.magiconnectfree", "com.tcl.miracast",                                // screen mirroring apps
         "com.tcl.waterfall.overseas", "com.tcl.channelplus",                          // TCL Channel and its Live TV
@@ -135,7 +135,20 @@ final class HomeMode {
         "com.fengmi.projector.imaging", "com.fengmi.platform", "com.fengmi.Autopair", "com.fengmi.fmsettings",
         "com.fengmi.testsuite", "android.autoinstalls.config.fomovie",
         "uk.co.freeview.tifbridge",
-        "uk.co.freeview.mdsclient", "uk.co.freeview.fvpconfigauth"));
+        "uk.co.freeview.mdsclient", "uk.co.freeview.fvpconfigauth",
+        // Vu (Smartchoice Vibe 75VIBE-DV, MediaTek "merak", Google TV 12): TV service, picture and sound, HDMI inputs
+        // and tuner, remote and voice, OTA and USB updates, setup and EULA, factory menus, casting (AirPlay, DLNA),
+        // Alexa, SmartSense, media center, Vu's launcher pieces and common UI. All kept on.
+        "com.vt.tvservice", "com.vt.avmiddleware", "com.vt.edv.drmp", "com.vt.source.external", "com.vt.source.tuner",
+        "com.vt.tv.input", "com.vt.tv.tvcenter", "com.vt.tv.videocolor", "com.vt.tv.commonui", "com.vt.tv.evservice",
+        "com.vt.tv.ota", "com.vt.tv.usbota", "com.vt.remoteupgrade", "com.vt.eula", "com.vt.fte", "com.vt.factory",
+        "com.factory.tv.at", "com.vt.udpserver", "com.vt.tv.customerlauncher", "com.vt.tv.smartservice",
+        "com.vt.tv.smartsense", "com.vt.tv.smartsense.ui", "com.vt.tv.aiot", "com.vt.tv.airplaykeycheck",
+        "com.vt.tv.dlna", "com.vt.tv.mediacenter", "com.vt.tv.protector", "com.vt.tv.singlelisten", "com.vt.alexa",
+        "com.mediatek.AirplayAPK", "com.mediatek.airplaydaemon", "com.mediatek.partner.airplay_sys",
+        "com.mediatek.aowtis", "com.mediatek.dtv.tvinput.framework.server", "com.mediatek.support.webview",
+        "com.mediatek.system.pqrepository.overlay.config", "com.android.bluetooth",
+        "com.google.android.katniss", "com.google.android.youtube.tvmusic"));
 
     /** One switch at a time (jobs can overlap: a boot check and a button press). */
     private static final Object RUN = new Object();

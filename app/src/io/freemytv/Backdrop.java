@@ -27,7 +27,7 @@ final class Backdrop {
     private static final float UI_SCALE = uiScale();
     static final int W = ui(1920), H = ui(1080), FW = 192, FH = 108, GW = 480, GH = 270;
     /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
-    static final int WIDE_W = ui(1092), WIDE_H = ui(464), TALL_W = ui(336), TALL_H = ui(464);
+    static final int WIDE_W = ui(1092), WIDE_H = ui(504), TALL_W = ui(336), TALL_H = ui(504);
 
     private static float uiScale() {
         android.util.DisplayMetrics m = android.content.res.Resources.getSystem().getDisplayMetrics();
@@ -46,6 +46,12 @@ final class Backdrop {
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+    /** A wallpaper (Wallpapers): drawn as it is instead of lightImage, dimmed at night. Null for the picks' photos. */
+    Bitmap sharp;
+    /** How dark the wallpaper is where the clock sits (0 = light, 1 = dark): dark ones get white text and smoked glass. */
+    float darkness;
+    /** A photo wallpaper (it has its own scrims, so it dims less at night). */
+    boolean photo;
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
@@ -110,6 +116,40 @@ final class Backdrop {
         return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
     }
 
+    /**
+     * A wallpaper as the background: `src` is drawn as it is (photos get soft scrims for the clock and the shelf), and
+     * its frosted version is what the glass shows. Built once; the image lives in GPU memory.
+     */
+    static Backdrop wallpaper(Bitmap src, boolean photo) {
+        Bitmap out = src.isMutable() ? src : src.copy(Bitmap.Config.ARGB_8888, true);
+        if (out != src) src.recycle();
+        int w = out.getWidth(), h = out.getHeight();
+        float lum = luminance(out, 0, 0.22f, 0.5f, 0.62f);
+        // A bright photo (a white car on a gray studio floor) keeps the light look: dark text, white glass, no scrim.
+        boolean lightPhoto = photo && lum > 0.6f;
+        if (photo && !lightPhoto) {
+            // White text on any photo: a gentle scrim on the left (clock) and at the bottom (shelf).
+            Canvas c = new Canvas(out);
+            Paint scrim = new Paint(Paint.DITHER_FLAG);
+            scrim.setShader(new LinearGradient(0, 0, w * 0.62f, 0, new int[] {black(0.58f), black(0.34f), 0},
+                    new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h, scrim);
+            scrim.setShader(new LinearGradient(0, h, 0, h * 0.55f, new int[] {black(0.3f), 0},
+                    null, Shader.TileMode.CLAMP));
+            c.drawRect(0, h * 0.55f, w, h, scrim);
+        }
+        int[] frost = reduce(out, FW, FH, 3, 3);
+        int[] glass = reduce(out, GW, GH, 2, 2);
+        int[] lightGlass = whiten(glass.clone(), 0.3f);
+        int[] night = darken(frost.clone(), 0.5f);
+        int[] nightGlass = darken(glass, 0.56f);
+        Backdrop b = new Backdrop(null, frost, null, null, null, frost.clone(), lightGlass, night, nightGlass);
+        b.sharp = gpu(out);
+        b.photo = photo;
+        b.darkness = photo ? (lightPhoto ? 0 : 1) : lum < 0.5f ? 1 : 0;
+        return b;
+    }
+
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
     static final int PHOTO_FROST = 6;
 
@@ -167,6 +207,16 @@ final class Backdrop {
         }
         Bitmap out = Bitmap.createScaledBitmap(b, w, h, true);
         if (b != full && b != out) b.recycle();
+        if (!out.isMutable()) {
+            Bitmap copy = out.copy(Bitmap.Config.ARGB_8888, true);
+            out.recycle();
+            out = copy;
+        }
+        // The dark fade under the card's title, painted in once here: drawn live it cost the GPU ~6 ms a frame.
+        Paint fade = new Paint(Paint.DITHER_FLAG);
+        fade.setShader(new LinearGradient(0, 0, 0, h, new int[] {0x00000000, 0x00000000, 0x80000000, 0xC7000000},
+                new float[] {0, 0.42f, 0.74f, 1}, Shader.TileMode.CLAMP));
+        new Canvas(out).drawRect(0, 0, w, h, fade);
         return gpu(out);
     }
 
