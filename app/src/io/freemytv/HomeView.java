@@ -700,7 +700,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
         if (drawerMoving || bgFading) sky.invalidate();
-        if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
+        // The shelf glass follows the drawer as it slides (it reads the background where it really is). With shaders
+        // that cost ~50 ms a frame, so there it's redrawn once the drawer stops; the flat glass is cheap every frame.
+        if (bgFading || (drawerMoving && scene.flat()) || (drawerWasMoving && !drawerMoving)) platter.invalidate();
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
         if (updateClock()) {
@@ -859,6 +861,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Swaps the background with a cross-fade (from one image to another, from the gradient to an image, or back). */
     private void showBackdrop(Backdrop b) {
         if (b == bgTo) return;
+        // The cross-fade needs frames from its first moment: idle, the loop only ticks once a second, and a fade
+        // starting then (the row's delayed background, a wallpaper finishing) jumped straight to its end.
+        wake();
         if ((b != null ? b.darkness : 0) != (bgTo != null ? bgTo.darkness : 0)
                 || (b != null && b.photo) != (bgTo != null && bgTo.photo)) {
             // Light ⇄ dark wallpaper: the text and glass colors change, so the cached layers are redrawn.
@@ -888,6 +893,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (b != bgTo) return night < 0.5f ? b.lightGlass : b.nightGlass;
         for (int i = 0; i < glassNight.length; i++) glassNight[i] = mix(b.lightGlass[i], b.nightGlass[i], night);
         return glassNight;
+    }
+
+    private final int[] neutralFade = new int[Backdrop.FW * Backdrop.FH];
+
+    /** The plain background's gray as a frost image (to fade the glass from or to it). */
+    private int[] neutralFrost() {
+        java.util.Arrays.fill(neutralFade, blend(0xFFEBEBF0, 0xFF141416, night));
+        return neutralFade;
     }
 
     /** No photo: the glass reads the background's own gray (not Scene's default aurora, which isn't on screen). */
@@ -1022,7 +1035,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean tickBackgroundFade(long up) {
         if (bgFadeAt == 0) return false;
         float e = fadeEase(bgFadeAt, up);
-        if (bgTo != null && bgFrom != null && glassOf(bgFrom) != null && glassOf(bgTo) != null) {
+        if (scene.flat()) {
+            // The shelf's glass shows the blurred background: it cross-fades in step with the background itself
+            // (before, it kept the old image for the whole fade and swapped at the end: a visible flicker). From or to
+            // the plain background, its own gray. ~20k pixels a frame: cheap.
+            int[] from = bgFrom != null && bgFrom.frost != null ? frostOf(bgFrom) : neutralFrost();
+            int[] to = bgTo != null && bgTo.frost != null ? frostOf(bgTo) : neutralFrost();
+            for (int i = 0; i < frostMix.length; i++) frostMix[i] = mix(from[i], to[i], e);
+            scene.setFrost(frostMix);
+        } else if (bgTo != null && bgFrom != null && glassOf(bgFrom) != null && glassOf(bgTo) != null) {
             if (drawerLayer.getVisibility() == VISIBLE || toast != null) {
                 int[] from = frostOf(bgFrom), to = frostOf(bgTo);
                 for (int i = 0; i < frostMix.length; i++) frostMix[i] = mix(from[i], to[i], e);
@@ -1236,7 +1257,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tmp.set(platterRect);
         tmp.offset(0, 18 * k);
         shadow.setColor(tone(0x1F000000, 0x52000000));
-        shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
+        shadows.drawCached(c, tmp, radius, SHADOW_BLUR * k, shadow);   // pre-blurred: redrawn every frame of a drawer slide
         // White glass by day; smoked glass at night.
         scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
                 tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1);

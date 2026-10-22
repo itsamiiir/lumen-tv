@@ -228,6 +228,11 @@ final class Scene {
         advance(time);
     }
 
+    /** No shaders (Android 9 to 12): the glass is a few plain draws, cheap enough to redraw on every frame. */
+    boolean flat() {
+        return glass == null;
+    }
+
     /** The current blurred image (so the bottom drawer can blur the background), or null with the aurora. */
     Bitmap frostImage() {
         return imageFrost ? frostImage : null;
