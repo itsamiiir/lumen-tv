@@ -87,7 +87,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long TOAST_MS = 6000, FADE_MS = 800;
     /** Blur radii of the shadow and shadowDeep paints (Shadows needs them to draw the same blur on older TVs). */
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
-    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7;
+    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, DOTS = 8;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
@@ -123,7 +123,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
     });
     private final RectF a11yRect = new RectF();
-    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer;
+    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, dotsLayer;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -149,6 +149,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring[] cardFocus = new Spring[3];
     private final RectF[] cardRects = new RectF[3];
     private int rowStart, focusSlot;
+    // The row moves on by itself every 10 s (any key restarts the count); the page dots show the time left.
+    private static final long AUTO_MS = 10_000;
+    private static final float DOTS_CY = 792;   // between the cards (bottom 742) and the shelf (top ~841)
+    private long autoFrom;
+    private final Runnable autoTick = this::autoTick;
     private boolean rowDirect;
     private final Spring rowScroll = new Spring(0.42f, 0.88f, 0), wideAt = new Spring(0.36f, 0.86f, 0);
     private final Spring[] rowSprings = {rowScroll, wideAt};
@@ -173,12 +178,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final Map<String, int[]> TILE_STYLE = new HashMap<>();
     static {
         TILE_STYLE.put("netflix", new int[] {0xFF0A0A0A, 0xFF000000, 0});
-        TILE_STYLE.put("youtube", new int[] {0xFF1C1C1E, 0xFF09090A, 0});
+        // Apple TV-style icons: the brand's color edge to edge, the logo in one color on it.
+        TILE_STYLE.put("youtube", new int[] {0xFFFF2B3A, 0xFFE0001E, 3});   // red, white logo (the triangle cut out)
         TILE_STYLE.put("globoplay", new int[] {0xFFFF8A1F, 0xFFFF2D5A, 1});
         TILE_STYLE.put("prime", new int[] {0xFF2AA8FF, 0xFF0A68D4, 1});
         TILE_STYLE.put("disney", new int[] {0xFF173584, 0xFF08143F, 0});
         TILE_STYLE.put("max", new int[] {0xFF5C30E8, 0xFF221684, 0});
-        TILE_STYLE.put("appletv", new int[] {0xFF1C1C1E, 0xFF000000, 0});
+        TILE_STYLE.put("appletv", new int[] {0xFF1C1C1E, 0xFF000000, 1});   // black, white logo
+        TILE_STYLE.put("spotify", new int[] {0xFF161616, 0xFF000000, 0});   // black, its green logo
     }
     private final android.graphics.PorterDuffColorFilter whiteLogo =
             new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -327,6 +334,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case STATUS: drawLightButtons(c); break;
                 case PLATTER: drawPlatter(c); break;
                 case TILES: drawTiles(c); break;
+                case DOTS: drawRowDots(c); break;
                 case DRAWER: drawDrawer(c); break;
                 case SHEET: drawSheet(c); break;
                 default: drawToast(c); break;
@@ -379,12 +387,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLayer = new Layer(a, DRAWER);
         sheetLayer = new Layer(a, SHEET);
         toastLayer = new Layer(a, TOAST);
+        dotsLayer = new Layer(a, DOTS);   // small, on its own: the progress line redraws only this strip
         // Hardware layers on the GPU: only the one that changed is redrawn; moving, fading and scaling stay cheap.
         // Not on Android 9 to 11: on older GPUs (a Mi Box 3's Mali-450) redrawing and compositing a big layer on every
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
         for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {sky, heroLayer, dotsLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
@@ -434,6 +443,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         motionDirty = true;
         invalidateAll();
         idle = false;
+        autoFrom = SystemClock.uptimeMillis();
+        handler.post(autoTick);
         Choreographer.getInstance().postFrameCallback(this);
         spoken.readAgain();
     }
@@ -447,6 +458,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
         handler.removeCallbacks(reloadSoon);
+        handler.removeCallbacks(autoTick);
         data.removeListener(this);
         recs.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
@@ -526,6 +538,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
+        measure(dotsLayer, Math.round(1000 * kk), Math.round(40 * kk));
         setMeasuredDimension(width, height);
     }
 
@@ -546,6 +559,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer.setPivotX(width / 2f);
         sheetLayer.setPivotY(height / 2f);
         place(toastLayer, (width - toastLayer.getMeasuredWidth()) / 2, 0);
+        place(dotsLayer, (width - dotsLayer.getMeasuredWidth()) / 2, Math.round(DOTS_CY * kk) - dotsLayer.getMeasuredHeight() / 2);
     }
 
     private static void place(View v, int x, int y) {
@@ -696,7 +710,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // glass shows the background where it ended up.
         if (tilesMoving || tilesDirty) tiles.invalidate();
         if (statusMoving || statusDirty || bgFading) status.invalidate();
-        if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
+        if (heroMoving || heroDirty || heroFading) {
+            heroLayer.invalidate();
+            dotsLayer.invalidate();
+        }
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
         if (drawerMoving || bgFading) sky.invalidate();
@@ -745,6 +762,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float shift = SHIFT * k;
         float lift = -d * shift;
         show(heroLayer, top, lift);
+        show(dotsLayer, top, lift);
         show(status, top, lift);
         show(platter, home, lift);
         show(tiles, home, lift);
@@ -1493,6 +1511,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean rest = s < 1 + FOCUS_GROW / 2;
         Bitmap logo = crispLogo(it, mode == 2 && it.logoDark != null, rest);
         if (logo == null) return;
+        if (mode == 3) logo = onBrand(logo);
         float scale = rest ? s : s / (1 + FOCUS_GROW);
         float dw = logo.getWidth() * scale, dh = logo.getHeight() * scale;
         float left = box.centerX() - dw / 2, top = box.centerY() - dh / 2;
@@ -1504,6 +1523,41 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         bitmapPaint.setColorFilter(mode == 1 ? whiteLogo : null);
         c.drawBitmap(logo, null, tmp, bitmapPaint);
         bitmapPaint.setColorFilter(null);
+    }
+
+    /**
+     * The logo in white for a brand-colored tile, with what sits inside its colored badge cut out (YouTube: the white
+     * play triangle shows the red tile through it, the wordmark turns white). Made once per size.
+     */
+    private Bitmap onBrand(Bitmap src) {
+        String key = "brand@" + System.identityHashCode(src);
+        Bitmap done = crispLogos.get(key);
+        if (done != null) return done;
+        int w = src.getWidth(), h = src.getHeight();
+        int[] px = new int[w * h];
+        src.getPixels(px, 0, w, 0, 0, w, h);
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;   // the colored badge's box
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int p = px[y * w + x], a = p >>> 24, r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+                if (a > 128 && r > 150 && g < 100 && b < 130) {
+                    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+                }
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x, p = px[i], a = p >>> 24;
+                int lo = Math.min((p >> 16) & 255, Math.min((p >> 8) & 255, p & 255));
+                boolean inBadge = x >= x0 && x <= x1 && y >= y0 && y <= y1;
+                // Inside the badge, light pixels become holes (soft at the edges); everything else is white.
+                float keep = inBadge ? 1 - Ui.clamp((lo - 110) / 120f) : 1;
+                px[i] = (Math.round(a * keep) << 24) | 0xFFFFFF;
+            }
+        }
+        Bitmap out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+        crispLogos.put(key, out);
+        return out;
     }
 
     private Bitmap crispLogo(HomeApps.Item it, boolean dark, boolean rest) {
@@ -2063,6 +2117,49 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /** A wallpaper finished building: show it (with the cross-fade, so frames keep coming). */
+    /** Not now: away from the home screen (an app, the screensaver), something open, or nothing to move to. */
+    private boolean autoPaused() {
+        return !running || !hasWindowFocus() || cards.size() < 2 || !picksOn() || drawerOpen || drawer.value > 0.01f
+                || sheetOpen || pickingWall || reordering;
+    }
+
+    /** 0 to 1: how far into this suggestion's 10 s we are (0 while paused). */
+    private float autoProgress() {
+        if (autoPaused()) return 0;
+        return Ui.clamp((SystemClock.uptimeMillis() - autoFrom) / (float) AUTO_MS);
+    }
+
+    /** 10 times a second: the dots' line grows (only that small layer redraws); at 10 s, the row moves on. */
+    private void autoTick() {
+        handler.removeCallbacks(autoTick);
+        if (!running) return;
+        long now = SystemClock.uptimeMillis();
+        if (autoPaused()) {
+            autoFrom = now;
+            dotsLayer.invalidate();
+            handler.postDelayed(autoTick, 500);
+            return;
+        }
+        if (now - autoFrom >= AUTO_MS) {
+            autoFrom = now;
+            advanceRow();
+        }
+        dotsLayer.invalidate();
+        handler.postDelayed(autoTick, 100);   // 10 a second: the line grows ~0.6 px a step, enough to look continuous
+    }
+
+    /** The next suggestion, as → would (without the click), wherever the focus is. */
+    private void advanceRow() {
+        int n = cards.size();
+        if (n < 2) return;
+        if (!rowLoops()) focusSlot = (focusSlot + 1) % n;
+        else if (focusSlot + 1 > 2) rowStart++;
+        else focusSlot++;
+        rowMoved();
+        retarget(false);
+        wake();
+    }
+
     private void wallpaperReady() {
         updateCards();
         wake();
@@ -2209,6 +2306,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     boolean onKey(KeyEvent e) {
         wake();
+        autoFrom = SystemClock.uptimeMillis();   // any key: the current suggestion gets its full 10 s again
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
         if (pickingWall) return wallKey(e, down);
@@ -3242,7 +3340,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
         drawRow(c);
-        drawRowDots(c);
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
 
@@ -3252,23 +3349,28 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawRowDots(Canvas c) {
         int n = cards.size();
-        if (n < 2) return;
+        if (n < 2 || !picksOn()) return;
         float pos = rowScroll.value + wideAt.value;
         int at = (int) Math.floor(pos);
         float t = pos - at;
         int a = Math.floorMod(at, n), b = Math.floorMod(at + 1, n);
-        float dot = 8 * k, pill = 28 * k, gap = 10 * k;
+        float dot = 8 * k, pill = 56 * k, gap = 10 * k;
         float total = (n - 1) * (dot + gap) + pill;
-        float cardsBottom = (L_CARDS_TOP + L_CARD_H) * k;
-        float shelfTop = platterRect.isEmpty() ? cardsBottom + 80 * k : platterRect.top;
-        float cy = (cardsBottom + shelfTop) / 2 + 4 * k, x = (w - total) / 2;
-        int on = tone(0xD91D1D1F, 0xEBFFFFFF), off = tone(0x381D1D1F, 0x47FFFFFF);
+        float cy = DOTS_CY * k, x = (w - total) / 2;
+        // Apple-style: the current one is a longer dash whose line fills over the 10 s before the row moves on.
+        int on = tone(0xD91D1D1F, 0xEBFFFFFF), off = tone(0x381D1D1F, 0x47FFFFFF), track = tone(0x4D1D1D1F, 0x5CFFFFFF);
+        int current = t < 0.5f ? a : b;
+        float progress = autoProgress();
         fill.setShader(null);
         for (int i = 0; i < n; i++) {
             float grow = (i == a ? 1 - t : 0) + (i == b ? t : 0);
             float dw = dot + (pill - dot) * grow;
-            fill.setColor(blend(off, on, grow));
+            fill.setColor(blend(off, track, grow));
             c.drawRoundRect(x, cy - dot / 2, x + dw, cy + dot / 2, dot / 2, dot / 2, fill);
+            if (i == current && grow > 0.5f && progress > 0) {
+                fill.setColor(on);
+                c.drawRoundRect(x, cy - dot / 2, x + Math.max(dot, dw * progress), cy + dot / 2, dot / 2, dot / 2, fill);
+            }
             x += dw + gap;
         }
     }
