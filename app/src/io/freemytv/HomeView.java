@@ -286,6 +286,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint veil = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint logoPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final RectF logoDst = new RectF();
     private final Paint tileFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clip = new Path();
     private final RectF tmp = new RectF(), cell = new RectF(), screen = new RectF();
@@ -3133,6 +3135,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean asWide = bw > (wideW() + L_TALL_W * k) / 2;
         Backdrop b = recs.backdrop(p);
         Bitmap img = b == null ? null : (asWide ? b.wide : b.tall);
+        boolean poster = !asWide && b != null && b.poster;   // the official poster: its title is on it already
         if (img != null) {
             cropImage(c, img, cell, r);
         } else {
@@ -3150,7 +3153,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String meta = p.meta == null ? "" : p.meta;
         // The details show only on the selected (wide) card: they fade in, and the title rises, as it widens.
         float tall = L_TALL_W * k, open = Ui.clamp((bw - tall) / (wideW() - tall) * 1.4f - 0.4f);
-        if (!meta.isEmpty() && open > 0.01f) {
+        if (!poster && !meta.isEmpty() && open > 0.01f) {
             lOnMeta.setAlpha(Math.round(0xD9 * open));
             String mk = Math.round(textW) + "|" + meta;
             String fitted = metaFits.get(mk);
@@ -3164,11 +3167,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             lOnMeta.setAlpha(0xD9);
             baseY -= (Ui.cap(lOnMeta) + 14 * k) * open;
         }
-        StaticLayout title = titleLayout(p.title == null ? "" : p.title, Math.round(textW));
-        c.save();
-        c.translate(-bw / 2 + pad, baseY - title.getLineBaseline(title.getLineCount() - 1));
-        title.draw(c);
-        c.restore();
+        Bitmap logo = asWide && b != null ? b.logo : null;
+        if (logo != null) {
+            // The title's own logo, like Apple TV: it fits the logo box (sized for the focused card, hence / 1.05).
+            float fit = Math.min(1, Math.min(textW / logo.getWidth(), 1.05f * Backdrop.LOGO_H / logo.getHeight())) / 1.05f;
+            float lw = logo.getWidth() * fit, lh = logo.getHeight() * fit, lx = -bw / 2 + pad, ly = baseY + 4 * k - lh;
+            logoDst.set(lx, ly, lx + lw, ly + lh);
+            logoPaint.setAlpha(Math.round(255 * Ui.clamp(open * 1.6f)));
+            c.drawBitmap(logo, null, logoDst, logoPaint);
+        } else if (!poster) {
+            StaticLayout title = titleLayout(p.title == null ? "" : p.title, Math.round(textW));
+            c.save();
+            c.translate(-bw / 2 + pad, baseY - title.getLineBaseline(title.getLineCount() - 1));
+            title.draw(c);
+            c.restore();
+        }
         if (f > 0.01f) {
             int alpha = Math.round(255 * f);
             unitMatrix.setScale(bw, bh);

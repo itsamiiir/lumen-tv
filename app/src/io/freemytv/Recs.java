@@ -46,6 +46,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String poster, logo;    // the official poster (with its title) and the title's logo, or null
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
     }
@@ -59,7 +60,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -412,10 +413,16 @@ final class Recs {
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
         for (String kind : new String[] {"movie", "tv"}) {
             // With a country set, its most popular titles right now instead (trending is worldwide).
-            JSONArray hot = ORIGIN.isEmpty() ? get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results")
-                    : get("/discover/" + kind + "?vote_count.gte=10" + common).getJSONArray("results");
             List<Pick> candidates = new ArrayList<>();
-            for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
+            if (ORIGIN.isEmpty()) {
+                JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
+                for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
+            } else {
+                for (int page = 1; page <= 2; page++) {
+                    JSONArray hot = get("/discover/" + kind + "?vote_count.gte=10&page=" + page + common).getJSONArray("results");
+                    for (int i = 0; i < hot.length(); i++) add(candidates, hot.getJSONObject(i), kind);
+                }
+            }
             for (Pick pick : candidates) {
                 try {
                     fetchDetails(pick);
@@ -426,14 +433,20 @@ final class Recs {
             }
         }
         // 2. Recent releases on the TV's services: movies from the past year and shows with a new episode in the
-        //    past 3 months.
+        //    past 3 months (with a country set, its popular titles above already are the list).
+        List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
+        if (ORIGIN.isEmpty()) {
         JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
                 + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
         JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
                 + common).getJSONArray("results");
-        List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
+        if (Config.FAMILY_FRIENDLY) {   // checked now, so no title shows before its ratings are known
+            newMovies = checked(newMovies);
+            newShows = checked(newShows);
+        }
+        }
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 30.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
@@ -444,6 +457,20 @@ final class Recs {
         period = p;
         listAt = System.currentTimeMillis();
         listLanguage = Ui.language;
+    }
+
+    /** The ones whose details load and that are on one of the TV's apps (fetchDetails leaves the others without one). */
+    private List<Pick> checked(List<Pick> in) {
+        List<Pick> out = new ArrayList<>();
+        for (Pick p : in) {
+            try {
+                fetchDetails(p);
+            } catch (Exception e) {
+                continue;
+            }
+            if (p.pkg != null) out.add(p);
+        }
+        return out;
     }
 
     /** Only titles made in this country (config.properties "tmdb_origin", e.g. IN); empty = from anywhere. */
@@ -492,10 +519,15 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images"
+                + (Config.FAMILY_FRIENDLY ? (p.kind.equals("movie") ? ",release_dates" : ",content_ratings") + ",keywords" : "")
+                + "&include_image_language=null," + Ui.language + ",en");
         p.title = title(p, o);
-        String best = bestBackdrop(o.optJSONObject("images"));
+        JSONObject images = o.optJSONObject("images");
+        String best = bestBackdrop(images);
         if (best != null) p.backdrop = best;
+        p.poster = bestPoster(images);
+        p.logo = bestLogo(images);
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));
@@ -524,6 +556,10 @@ final class Recs {
                 p.app = s[1];
                 p.pkg = s[2];
             }
+        }
+        if (Config.FAMILY_FRIENDLY && forAdults(p, o)) {
+            p.app = p.pkg = null;   // treated like a title on none of the TV's apps: never shown
+            AppLog.w("left out (family): \u201c" + p.title + "\u201d");
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
@@ -574,6 +610,86 @@ final class Recs {
      * The title's best backdrop: no text written over it (our own text goes on top of it), the closest to 1920 wide
      * (larger only costs download, disk and decoding) and, on a tie, the highest rated.
      */
+    /** Sexual content, by TMDB's keywords (ratings alone miss it: Lust Stories 3 is U/A 16+ in India). */
+    private static final java.util.regex.Pattern SEXUAL = java.util.regex.Pattern.compile(
+            "\\b(sex|sexual|erotic|lust|nudity|adult humor|softcore|seduction|stripper|prostitut)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Rated for adults. The TV's country decides when it rated the title (in India U, U/A 7+, UA and U/A 13+ pass,
+     * U/A 16+ and A don't), since other countries rate violence in Indian films much higher (RRR is R in the US);
+     * else the US and UK ratings, and a title rated in none of the three is left out. A US TV-MA or NC-17, a UK 18
+     * and sexual keywords leave it out always.
+     */
+    private static boolean forAdults(Pick p, JSONObject o) {
+        if (o.optBoolean("adult")) return true;
+        JSONObject kw = o.optJSONObject("keywords");
+        JSONArray words = kw == null ? null : kw.optJSONArray(p.kind.equals("movie") ? "keywords" : "results");
+        for (int i = 0; words != null && i < words.length(); i++) {
+            if (SEXUAL.matcher(words.optJSONObject(i).optString("name")).find()) return true;
+        }
+        Map<String, Set<String>> ratings = new HashMap<>();
+        if (p.kind.equals("movie")) {
+            JSONObject rd = o.optJSONObject("release_dates");
+            JSONArray list = rd == null ? null : rd.optJSONArray("results");
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject country = list.optJSONObject(i);
+                JSONArray dates = country.optJSONArray("release_dates");
+                for (int j = 0; dates != null && j < dates.length(); j++) {
+                    String r = dates.optJSONObject(j).optString("certification").trim();
+                    if (!r.isEmpty()) ratings.computeIfAbsent(country.optString("iso_3166_1"), x -> new HashSet<>()).add(r);
+                }
+            }
+        } else {
+            JSONObject cr = o.optJSONObject("content_ratings");
+            JSONArray list = cr == null ? null : cr.optJSONArray("results");
+            for (int i = 0; list != null && i < list.length(); i++) {
+                String r = list.optJSONObject(i).optString("rating").trim();
+                if (!r.isEmpty()) ratings.computeIfAbsent(list.optJSONObject(i).optString("iso_3166_1"), x -> new HashSet<>()).add(r);
+            }
+        }
+        Set<String> none = new HashSet<>(), us = ratings.getOrDefault("US", none), gb = ratings.getOrDefault("GB", none);
+        if (us.contains("TV-MA") || us.contains("NC-17") || gb.contains("18") || gb.contains("R18")) return true;
+        Set<String> local = ratings.get(REGION);
+        if (local != null && !local.isEmpty()) {
+            for (String r : local) if (adultRating(r)) return true;
+            return false;
+        }
+        return us.contains("R") || (us.isEmpty() && gb.isEmpty());
+    }
+
+    private static boolean adultRating(String r) {
+        return r.matches(".*\\b(1[6-9]|2[01])\\b.*") || r.equals("A") || r.equals("S") || r.equals("R") || r.equals("NC-17")
+                || r.equals("TV-MA") || r.equals("R18");
+    }
+
+    /** The official poster with its title on it (a language-tagged one; the textless ones look like stills), or null. */
+    private static String bestPoster(JSONObject images) {
+        return bestTagged(images == null ? null : images.optJSONArray("posters"), false);
+    }
+
+    /** The title's logo (a transparent PNG), in the TV's language or English when there is one, or null. */
+    private static String bestLogo(JSONObject images) {
+        return bestTagged(images == null ? null : images.optJSONArray("logos"), true);
+    }
+
+    private static String bestTagged(JSONArray list, boolean png) {
+        String best = null;
+        double bestScore = -1;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject b = list.optJSONObject(i);
+            String path = b == null ? "" : b.optString("file_path", "");
+            if (path.isEmpty() || b.isNull("iso_639_1") || (png && !path.endsWith(".png"))) continue;
+            String lang = b.optString("iso_639_1");
+            double score = (lang.equals(Ui.language) ? 2e6 : lang.equals("en") ? 1e6 : 0)
+                    + Math.min(b.optInt("vote_count"), 50) * 1000 + b.optDouble("vote_average", 0) * 10;
+            if (score > bestScore) {
+                bestScore = score;
+                best = path;
+            }
+        }
+        return best;
+    }
+
     private static String bestBackdrop(JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("backdrops");
         String best = null;
@@ -609,7 +725,8 @@ final class Recs {
     }
 
     private long sourceStamp() {
-        long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
+        long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)
+                + (Config.FAMILY_FRIENDLY ? 2 : 0) + ORIGIN.hashCode() * 7L;
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
@@ -709,12 +826,33 @@ final class Recs {
     // MARK: - Images (TMDB originals on disk, up to 24 so the whole list fits; this hour's kept ready in memory)
 
     private void download(Pick p) throws IOException {
-        File f = imageFile(p);
+        download(IMAGES + p.backdrop, imageFile(p));
+    }
+
+    /** The poster (TMDB's 780-wide copy: the tall card is 336 px) and the logo (500 wide), next to the backdrops. */
+    private File artFile(String path) {
+        return new File(new File(context.getCacheDir(), "recs-art"), path.replace("/", ""));
+    }
+
+    private Bitmap art(String path, String size) {
+        if (path == null) return null;
+        File f = artFile(path);
+        try {
+            download("https://image.tmdb.org/t/p/" + size + path, f);
+            return BitmapFactory.decodeFile(f.getPath());
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+            return null;
+        }
+    }
+
+    private void download(String url, File f) throws IOException {
         if (f.exists()) return;
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection();
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
@@ -752,6 +890,7 @@ final class Recs {
             boolean forLight = light;
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
+            if (forLight) backdrop.art(art(p.poster, "w780"), art(p.logo, "w500"));
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
                 while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
@@ -798,7 +937,8 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed)
+                        .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -827,6 +967,8 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.poster = o.optString("poster").isEmpty() ? null : o.optString("poster");
+            p.logo = o.optString("logo").isEmpty() ? null : o.optString("logo");
             out.add(p);
         }
         return out;

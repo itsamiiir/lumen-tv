@@ -41,7 +41,10 @@ final class Backdrop {
     final Bitmap image;
     final int[] frost;      // heavily blurred (frosted glass, bottom drawer)
     final int[] glass;      // lightly blurred (Liquid Glass: the photo shows through the glass)
-    final Bitmap wide, tall;            // the photo on the cards
+    final Bitmap wide;                  // the photo on the wide card
+    Bitmap tall;                        // on the tall cards: the official poster when there is one, else the photo
+    boolean poster;                     // tall is the poster (its title is on it: the card draws none)
+    Bitmap logo;                        // the title's logo, drawn on the wide card instead of its name, or null
     final int[] light, lightGlass;      // by day: the frosted and glass versions, lightened
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
@@ -192,6 +195,74 @@ final class Backdrop {
             out = copy;
         }
         return new Bitmap[] {out, frost};
+    }
+
+    /** The logo's largest size on the wide card (at the focused card's size). */
+    static final int LOGO_W = ui(460), LOGO_H = ui(150);
+
+    /** Takes the poster for the tall cards and the logo for the wide one (either can be null). */
+    void art(Bitmap posterArt, Bitmap logoArt) {
+        if (posterArt != null) {
+            Bitmap old = tall;
+            tall = cover(posterArt, TALL_W, TALL_H);
+            poster = true;
+            if (old != null) old.recycle();
+        }
+        if (logoArt != null) logo = logo(logoArt);
+    }
+
+    /** The poster filling the card (both are 2:3), without the fade: its own title is part of it. */
+    private static Bitmap cover(Bitmap src, int w, int h) {
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        float scale = Math.max((float) w / src.getWidth(), (float) h / src.getHeight());
+        float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
+        new Canvas(out).drawBitmap(src, null, new RectF((w - sw) / 2, (h - sh) / 2, (w + sw) / 2, (h + sh) / 2),
+                new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        src.recycle();
+        return gpu(out);
+    }
+
+    /**
+     * The logo trimmed to what it draws and fitted into LOGO_W × LOGO_H. A dark logo turns white (Apple TV does the
+     * same): over the card's dark fade it wouldn't show.
+     */
+    private static Bitmap logo(Bitmap src) {
+        int w = src.getWidth(), h = src.getHeight();
+        int[] px = new int[w * h];
+        src.getPixels(px, 0, w, 0, 0, w, h);
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;
+        double lum = 0;
+        int solid = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int p = px[y * w + x];
+                if ((p >>> 24) < 24) continue;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+                if ((p >>> 24) > 128) {
+                    lum += (0.2126 * ((p >> 16) & 255) + 0.7152 * ((p >> 8) & 255) + 0.0722 * (p & 255)) / 255;
+                    solid++;
+                }
+            }
+        }
+        // Nothing drawn, or a box with no see-through parts (some uploads are a picture, not a logo): the name instead.
+        if (x1 < x0 || y1 < y0 || solid > 0.9 * (x1 - x0 + 1) * (y1 - y0 + 1)) {
+            src.recycle();
+            return null;
+        }
+        int cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+        float scale = Math.min(1, Math.min((float) LOGO_W / cw, (float) LOGO_H / ch));
+        int ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale));
+        Bitmap out = Bitmap.createBitmap(ow, oh, Bitmap.Config.ARGB_8888);
+        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        if (solid > 0 && lum / solid < 0.42) {
+            paint.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+        }
+        new Canvas(out).drawBitmap(src, new android.graphics.Rect(x0, y0, x1 + 1, y1 + 1), new RectF(0, 0, ow, oh), paint);
+        src.recycle();
+        return gpu(out);
     }
 
     /** The center of the photo at the card's aspect ratio, filtered down (halving while possible) to the exact size. */
