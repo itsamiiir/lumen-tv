@@ -224,7 +224,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private Spring[] tileSlide = new Spring[0];
     private final Spring moveLift = new Spring(0.3f, 0.72f, 0);
     private List<HomeApps.Item> reorderOrigin;
-    private final Runnable holdStart = () -> { if (this.okDown && this.holdArmed) startReorder(); };
+    private final Runnable holdStart = () -> { if (this.okDown && this.holdArmed) startHold(); };
+    /** Held OK on a Continue Watching card: asking to remove it (OK removes, Back or any arrow keeps it). */
+    private boolean removing, removeArmed;
 
     // Corner capsule
     private List<HomeApps.Item> statusItems = new ArrayList<>();
@@ -1813,6 +1815,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         fitPaint.set(cwTitle);
         String title = TextUtils.ellipsize(e.title == null ? "" : e.title, fitPaint, room, TextUtils.TruncateAt.END).toString();
         c.drawText(title, cwCell.left + pad, bottom - Ui.cap(cwSub) - 9 * k * s, cwTitle);
+        if (removing && i == cwIndex) {
+            // Asking to remove: the card dims under a "Remove" label.
+            fill.setShader(null);
+            fill.setColor(0xB3000000);
+            c.drawRoundRect(cwCell, r, r, fill);
+            String ask = Ui.tr("✕  Remover", "✕  Remove");
+            cwTitle.setTextSize(26 * k * s);
+            c.drawText(ask, cwCell.centerX() - cwTitle.measureText(ask) / 2, cwCell.centerY() + Ui.halfCap(cwTitle), cwTitle);
+        }
         if (f > 0.01f) {
             rim.setShader(null);
             rim.setColor(Ui.alpha(0xFFFFFFFF, 0.85f * f));
@@ -2440,6 +2451,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
+        if (removing) return removeKey(e, down);
         if (pickingWall) return wallKey(e, down);
         int code = e.getKeyCode();
         if (down && code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
@@ -2472,10 +2484,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         okDown = true;
                         okHeld = false;
                         handler.removeCallbacks(holdStart);
-                        holdArmed = canReorder();
+                        holdArmed = canReorder() || canRemove();
                         if (holdArmed) handler.postDelayed(holdStart, HOLD_MS);
                     } else if (okDown && holdArmed && e.isLongPress()) {
-                        startReorder();
+                        startHold();
                     }
                 } else {
                     holdArmed = false;
@@ -2725,6 +2737,59 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
         if (!opened) showToast(Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label + ".");
+    }
+
+    // MARK: - Removing from Continue Watching
+
+    private void startHold() {
+        if (canRemove()) startRemove();
+        else startReorder();
+    }
+
+    private boolean canRemove() {
+        return !sheetOpen && zone == Z_CONT && cwIndex < cwItems.size();
+    }
+
+    private void startRemove() {
+        handler.removeCallbacks(holdStart);
+        holdArmed = false;
+        if (!canRemove()) return;
+        removing = okHeld = true;
+        removeArmed = false;     // the release of this hold isn't the answer
+        click.open();
+        showToast(Ui.tr("OK para remover · Voltar para manter", "OK to remove · Back to keep"));
+        drawerDirty = true;
+        wake();
+    }
+
+    private boolean removeKey(KeyEvent e, boolean down) {
+        int code = e.getKeyCode();
+        boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (ok) {
+            if (down && e.getRepeatCount() == 0) removeArmed = true;
+            if (!down && removeArmed) {
+                Continue.Entry gone = cwIndex < cwItems.size() ? cwItems.get(cwIndex) : null;
+                endRemove();
+                if (gone != null) {
+                    cont.remove(gone);
+                    showToast(Ui.tr("Removido de Continuar assistindo", "Removed from Continue Watching"));
+                }
+            }
+            return true;
+        }
+        if (code == KeyEvent.KEYCODE_HOME) {
+            endRemove();
+            return false;
+        }
+        if (!down) endRemove();   // Back or an arrow: kept
+        return true;
+    }
+
+    private void endRemove() {
+        removing = removeArmed = okHeld = false;
+        okDown = false;
+        drawerDirty = true;
+        wake();
     }
 
     // MARK: - Moving apps on the shelf

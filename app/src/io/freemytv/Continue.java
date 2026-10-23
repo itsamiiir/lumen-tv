@@ -99,6 +99,8 @@ final class Continue {
         for (Entry e : all) seen.add(e.key);
         long old = System.currentTimeMillis() - KEEP;
         for (Entry e : history) if (e.at > old && !seen.contains(e.key)) all.add(e);
+        Set<String> hidden = prefs.getStringSet("hidden", new HashSet<>());
+        all.removeIf(e -> hidden.contains(hiddenKey(e)));
         all.sort((a, b) -> Long.compare(b.at, a.at));
         return all.size() > MAX ? new ArrayList<>(all.subList(0, MAX)) : all;
     }
@@ -127,6 +129,25 @@ final class Continue {
         for (Entry h : history) if (h.key.equals(e.key)) h.at = System.currentTimeMillis();
         saveHistory();
         changed();
+    }
+
+    /**
+     * Removed from the row (held OK). Only here: Stremio keeps its own progress, and a Stremio title comes back when
+     * it's watched again there (its last-watched time is part of what is hidden).
+     */
+    synchronized void remove(Entry e) {
+        history.removeIf(h -> h.key.equals(e.key));
+        saveHistory();
+        if (e.key.startsWith("stremio:")) {
+            Set<String> hidden = new HashSet<>(prefs.getStringSet("hidden", new HashSet<>()));
+            hidden.add(hiddenKey(e));
+            prefs.edit().putStringSet("hidden", hidden).apply();
+        }
+        changed();
+    }
+
+    private static String hiddenKey(Entry e) {
+        return e.key + "@" + e.at;
     }
 
     /** Stremio titles are keyed by IMDb id, so a Stremio pick and its Stremio progress are one entry. */
