@@ -3354,7 +3354,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Builds the images of the visible cards and one more on each side (not all 27: they don't fit in memory). */
     private void prefetchRow() {
-        for (int q = rowStart - 1; q <= rowStart + 3; q++) {
+        // The three on screen first, then the ones next to come in from either side.
+        for (int q : new int[] {rowStart + focusSlot, rowStart, rowStart + 1, rowStart + 2, rowStart + 3, rowStart - 1}) {
             Recs.Pick p = cardAt(q);
             if (p != null) recs.backdrop(p);
         }

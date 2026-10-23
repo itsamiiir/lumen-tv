@@ -1,11 +1,16 @@
 package io.freemytv;
 
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 /**
  * The home screen background made from the recommendation's image, built once in the background:
@@ -72,6 +77,11 @@ final class Backdrop {
     }
 
     static Backdrop make(Bitmap src, boolean forLight) {
+        return make(src, forLight, true);
+    }
+
+    /** `tallCard`: false when the title's poster will take the tall cards (no crop made for nothing). */
+    static Backdrop make(Bitmap src, boolean forLight, boolean tallCard) {
         Bitmap out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         Paint photo = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
@@ -81,7 +91,7 @@ final class Backdrop {
         src.recycle();
         if (forLight) {
             // Light design: everything comes from the photo without scrims.
-            Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+            Bitmap wide = card(out, WIDE_W, WIDE_H), tall = tallCard ? card(out, TALL_W, TALL_H) : null;
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
             int[] glass = reduce(out, GW, GH, 2, 2);
@@ -199,6 +209,87 @@ final class Backdrop {
 
     /** The logo's largest size on the wide card (at the focused card's size). */
     static final int LOGO_W = ui(460), LOGO_H = ui(150);
+
+    // MARK: - Ready on disk (light design): the cards, the logo and the blurred versions, so a cold start (the TV
+    // turning on, Android closing the home screen for memory) shows a title in ~50 ms instead of ~0.5 s rebuilding it.
+
+    /** Saves what the light design draws (once per title, in the background). */
+    void save(File dir) {
+        if (wide == null || light == null) return;
+        File part = new File(dir.getPath() + ".part");
+        try {
+            deleteAll(part);
+            if (!part.mkdirs()) return;
+            write(new File(part, "frost.png"), argb(frost, FW, FH), Bitmap.CompressFormat.PNG);
+            write(new File(part, "lglass.png"), argb(lightGlass, GW, GH), Bitmap.CompressFormat.PNG);
+            write(new File(part, "nglass.png"), argb(nightGlass, GW, GH), Bitmap.CompressFormat.PNG);
+            write(new File(part, "wide.jpg"), wide.copy(Bitmap.Config.ARGB_8888, false), Bitmap.CompressFormat.JPEG);
+            if (tall != null) write(new File(part, poster ? "poster.jpg" : "tall.jpg"), tall.copy(Bitmap.Config.ARGB_8888, false), Bitmap.CompressFormat.JPEG);
+            if (logo != null) write(new File(part, "logo.png"), logo.copy(Bitmap.Config.ARGB_8888, false), Bitmap.CompressFormat.PNG);
+            deleteAll(dir);
+            if (!part.renameTo(dir)) deleteAll(part);
+        } catch (Exception | OutOfMemoryError e) {
+            deleteAll(part);
+        }
+    }
+
+    /** What save wrote, or null. */
+    static Backdrop load(File dir) {
+        try {
+            File wf = new File(dir, "wide.jpg");
+            if (!wf.exists()) return null;
+            int[] frost = pixels(new File(dir, "frost.png"), FW, FH), lightGlass = pixels(new File(dir, "lglass.png"), GW, GH),
+                    nightGlass = pixels(new File(dir, "nglass.png"), GW, GH);
+            if (frost == null || lightGlass == null || nightGlass == null) return null;
+            Bitmap wide = decode(wf);
+            File pf = new File(dir, "poster.jpg"), tf = new File(dir, "tall.jpg"), lf = new File(dir, "logo.png");
+            Bitmap tall = pf.exists() ? decode(pf) : tf.exists() ? decode(tf) : null;
+            if (wide == null) return null;
+            Backdrop b = new Backdrop(null, frost, null, gpu(wide), tall == null ? null : gpu(tall), whiten(frost.clone(), 0.82f),
+                    lightGlass, darken(frost.clone(), 0.76f), nightGlass);
+            b.poster = pf.exists();
+            Bitmap logo = lf.exists() ? decode(lf) : null;
+            if (logo != null) b.logo = gpu(logo);
+            return b;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    private static Bitmap argb(int[] px, int w, int h) {
+        return px == null ? null : Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+    }
+
+    private static int[] pixels(File f, int w, int h) {
+        Bitmap b = decode(f);
+        if (b == null || b.getWidth() != w || b.getHeight() != h) return null;
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        b.recycle();
+        return px;
+    }
+
+    private static Bitmap decode(File f) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        return f.exists() ? BitmapFactory.decodeFile(f.getPath(), o) : null;
+    }
+
+    private static void write(File f, Bitmap b, Bitmap.CompressFormat format) throws IOException {
+        if (b == null) throw new IOException("nothing to save");
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            if (!b.compress(format, 92, out)) throw new IOException("couldn't save " + f.getName());
+        } finally {
+            b.recycle();
+        }
+    }
+
+    static void deleteAll(File f) {
+        File[] inside = f.listFiles();
+        for (int i = 0; inside != null && i < inside.length; i++) deleteAll(inside[i]);
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
 
     /** Takes this logo if it reads well on the card (bright, see-through); returns whether it did. */
     boolean tryLogo(Bitmap logoArt) {

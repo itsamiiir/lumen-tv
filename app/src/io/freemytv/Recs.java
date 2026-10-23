@@ -119,6 +119,8 @@ final class Recs {
     private final Context context;
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    /** Images on two threads (the lists stay on `io`): the TV has four cores, and a title takes ~0.5 s to prepare. */
+    private final ExecutorService imaging = Executors.newFixedThreadPool(2);
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
     // Built and ready to draw, least recently used first (access order): the row's visible cards stay, old ones go.
@@ -240,7 +242,7 @@ final class Recs {
             if (b != null) return b;
             if (!pending.add(key)) return null;
         }
-        io.execute(() -> {
+        imaging.execute(() -> {
             try {
                 loadImage(p);
             } finally {
@@ -948,7 +950,19 @@ final class Recs {
             if (images.containsKey(p.backdrop)) return;
         }
         File f = imageFile(p);
+        File ready = new File(new File(context.getCacheDir(), "recs-ready"), READY + p.backdrop.replace("/", ""));
         try {
+            Backdrop saved = light ? Backdrop.load(ready) : null;
+            if (saved != null) {
+                //noinspection ResultOfMethodCallIgnored
+                ready.setLastModified(System.currentTimeMillis());   // in use: kept by pruneReady
+                synchronized (images) {
+                    images.put(p.backdrop, saved);
+                    while (images.size() > 12) images.remove(images.keySet().iterator().next());
+                }
+                notifyListeners();
+                return;
+            }
             download(p);
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
@@ -960,10 +974,14 @@ final class Recs {
             if (b == null) throw new IOException("unreadable image");
             AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + Backdrop.W + "×" + Backdrop.H);
             boolean forLight = light;
-            Backdrop backdrop = Backdrop.make(b, forLight);
+            Backdrop backdrop = Backdrop.make(b, forLight, !forLight || p.poster == null);
             if (forLight != light) return;   // the design changed midway: this one is stale
             if (forLight) {
                 backdrop.art(art(p.poster, "w780"), null);
+                if (backdrop.tall == null) {
+                    // No poster after all (it didn't download): the tall cards take the photo, as without one.
+                    backdrop = Backdrop.make(BitmapFactory.decodeFile(f.getPath(), opts), true, true);
+                }
                 if (p.logo != null) for (String path : p.logo.split("\\|")) if (backdrop.tryLogo(art(path, "w500"))) break;
             }
             synchronized (images) {
@@ -971,6 +989,10 @@ final class Recs {
                 while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
+            if (forLight) {
+                backdrop.save(ready);
+                pruneReady(ready.getParentFile());
+            }
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
@@ -985,6 +1007,17 @@ final class Recs {
         synchronized (images) {
             images.keySet().retainAll(keep);
         }
+    }
+
+    /** Bump when what Backdrop.save writes, or how logos and posters are chosen, changes (older ones are rebuilt). */
+    private static final String READY = "v1-";
+
+    /** The ready titles: the 30 used last stay. */
+    private static void pruneReady(File dir) {
+        File[] all = dir.listFiles((d, name) -> !name.endsWith(".part"));
+        if (all == null || all.length <= 30) return;
+        Arrays.sort(all, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+        for (int i = 0; i < all.length - 30; i++) Backdrop.deleteAll(all[i]);
     }
 
     private static void prune(File dir) {
