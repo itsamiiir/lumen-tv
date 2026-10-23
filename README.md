@@ -11,7 +11,9 @@ Set up in about 30 minutes with Claude Code. One button brings back your TV's or
 
 [Install](#install) · [Which TVs](#which-tvs) · [What's new](CHANGES.md) · [Full setup guide](SETUP.md) · [Going back](#going-back)
 
-<img src="docs/screenshots/home.jpg" width="880" alt="Lumen TV's home screen: a large clock, Explore / Movies / Shows / Stremio tabs, a row of movie posters with the selected one wide, and a glass shelf of apps">
+<a href="docs/demo.mp4"><img src="docs/demo.gif" width="880" alt="Lumen TV in motion: switching tabs, sliding through suggestions, the app shelf, and the second page with Continue Watching, the dock and the weather"></a>
+
+<sub>25-second tour, recorded on the TV. <a href="docs/demo.mp4">Watch it in full quality (MP4)</a>.</sub>
 
 </div>
 
@@ -36,8 +38,11 @@ Set up in about 30 minutes with Claude Code. One button brings back your TV's or
 - **Safe.** No root, nothing uninstalled, and one button brings the factory home screen back.
 
 <p align="center">
-<img src="docs/screenshots/stremio-tab.jpg" width="430" alt="The Stremio tab: Jailer with its logo, then Fall 2: Deadpoint and Tulsa King posters">
-<img src="docs/screenshots/page-2.jpg" width="430" alt="The second page: the app shelf, Continue Watching with progress lines, a dock of inputs and shortcuts, and the weather">
+<img src="docs/screenshots/home.jpg" width="880" alt="The home screen: a large clock, Explore / Movies / Shows / Stremio tabs, The Bear selected with its logo, and the app shelf">
+</p>
+<p align="center">
+<img src="docs/screenshots/stremio-tab.jpg" width="435" alt="The Stremio tab: Jailer with its logo, then Fall 2: Deadpoint and Tulsa King posters">
+<img src="docs/screenshots/page-2.jpg" width="435" alt="The second page: the app shelf, Continue Watching with progress lines, a dock of inputs and shortcuts, and the weather">
 </p>
 
 ## Install
