@@ -73,6 +73,22 @@ Then on the TV: *Free My TV* → *Home Screen* → *Free My TV*.
 
 ## Which TVs
 
+**Requirement: Google TV or Android TV, Android 9 (Pie) or newer.** To check, on the TV open *Settings → System →
+About* and look at *Android TV OS version*.
+
+| Tested on | Android | Tested by |
+|---|---|---|
+| Vu 75″ Smartchoice Vibe (75VIBE-DV, Google TV) | 12 | Lumen TV |
+| TCL Google TV (98″, MediaTek) | 14 | Free My TV |
+| Sony BRAVIA (VH22) | 12 | Free My TV |
+| Vestel-made TVs (F&U and other store brands) | 14 | Free My TV |
+| KTC-made TVs (NextStar, Google TV) | 14 | Free My TV |
+| Xiaomi projectors by Formovie (L1, Google TV) | 14 | Free My TV |
+| Mi Box 3 | 9 | Free My TV |
+
+Android 9 to 11 run a lighter graphics mode (no GPU layers, cached shadows) so older chips stay smooth. The fancier
+frosted glass shaders need Android 13; on 9 to 12 the glass is drawn with simpler fills.
+
 | TV | Works? |
 |---|---|
 | **Google TV / Android TV, Android 9 or newer**: Sony Bravia, TCL, Vu, Xiaomi, Hisense, Philips, OnePlus, Toshiba (Android models) | ✅ Yes. Built and tested on a Vu 75″ Vibe (Google TV, Android 12). |
