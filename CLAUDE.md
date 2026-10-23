@@ -1,33 +1,50 @@
-# Free My TV: notes for Claude
+# Lumen TV: notes for Claude
+
+Lumen TV is a fork of Free My TV (github.com/simbasjungles/free-my-tv, MIT) with a redesigned Google TV / Android TV
+home screen: posters and title logos, a Stremio tab, Continue Watching (with Stremio progress), titles that open in
+their app (Watchmode), a second page with one dock, and faster image loading. [CHANGES.md](CHANGES.md) lists it all;
+[SETUP.md](SETUP.md) is the guide the person follows, so keep to its steps and wording.
+The app itself keeps Free My TV's name and package (`io.freemytv`): on the TV it's *Free My TV*.
 
 A home screen for Google TV and Android TV that replaces the stock one, plus a settings app that switches between
 Free My TV and the TV's original home screen. A plain Android app in Java, built without Gradle by `build.sh`.
-LG TVs (webOS) and Samsung TVs (Tizen) get the same home screen as a web app: `web/`, packed by `webos/` and `tizen/`
-(see below).
-The website (freemytv.io) is in `docs/`: static HTML, CSS and JS, no build step. A push to `main` that changes it
-publishes it to GitHub Pages (`.github/workflows/pages.yml`). `docs/index.html` (English) and `docs/pt/index.html`
-(Brazilian Portuguese) are the same page in two languages, so change both; visitors from Brazil land on the
-Portuguese one by themselves, and the PT/EN switch in the menu is remembered.
+LG TVs (webOS) and Samsung TVs (Tizen) get Free My TV's original web home screen (`web/`, packed by `webos/` and
+`tizen/`, see below), without Lumen's redesign.
 
 The person you're helping may not be technical. Keep it short and friendly, say what you're about to do on their TV
 before you do it, and let them do the taps on the TV.
 
 ## Installing it for someone
 
+0. **The code.** If they gave the link and aren't in this folder yet: `git clone https://github.com/itsamiiir/lumen-tv`
+   into their folder, then work inside `lumen-tv/`. Tell them what SETUP.md step 2 asks on the TV (Developer options,
+   USB/Network debugging, the IP address) if they haven't done it.
 1. **Ask** for the TV's IP address and their city, if they didn't say.
 2. **Tools:** a JDK 17+, the Android SDK command-line tools (build-tools 34+, platform android-34) and adb. Check
    what's already there (`java -version`, `$ANDROID_HOME`, `adb version`) and install only what's missing.
    - macOS: `brew install --cask temurin android-commandlinetools android-platform-tools`, then
-     `sdkmanager "build-tools;34.0.0" "platforms;android-34"`.
+     `sdkmanager "build-tools;34.0.0" "platforms;android-34"`. The `temurin` cask asks for an admin password; if
+     that isn't possible, `brew install openjdk@17` works without one: build with
+     `JAVA_HOME=$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home ./build.sh`.
    - Linux: OpenJDK 17, Android's command-line tools and adb from the package manager, then the same `sdkmanager` line.
    - Windows: Git Bash (what Claude Code runs there; `build.sh` handles it) or WSL, then as on Linux.
 3. **Settings:** run `./build.sh` once; it creates `config.properties`. Fill in `latitude` and `longitude` (decimal
    degrees) and `city` for their city, `tmdb_region` (two-letter country), `show_crypto`, `currency` and `temperature` to match.
+   Lumen's own: `tmdb_origin` (their country again, e.g. `IN`, to mix its popular titles with worldwide hits; empty
+   for worldwide only) and `family_friendly` (`true` leaves out sexual content). Ask if unsure.
 4. **The TMDB key is theirs and secret.** Ask them to create one (free: themoviedb.org → Settings → API) and paste it
    after `tmdb_key=` in `config.properties` themselves. Don't ask for it in the chat, never print it, never commit
    it. If they paste it in the chat anyway, put it only in `config.properties`.
    Without a key everything works except the picks and the screensaver photos.
-   The same goes for the optional `watchmode_key` (free, watchmode.com; makes picks open the title's page): theirs, secret, only in `config.properties`.
+   The same goes for the optional `watchmode_key` (free, api.watchmode.com/requestApiKey; makes picks open the title's page): theirs, secret, only in `config.properties`.
+   Optional Stremio progress: `tools/stremio-key.sh` signs in once and writes `stremio_auth_key`. It asks for their
+   Stremio email and password: run it in **their own** terminal (a Terminal panel tab if you have one) so they type
+   the password themselves; never ask for it in the chat, never read the key back out.
+   Open `config.properties` for them to edit (`open -e config.properties` on a Mac). Check a key worked without
+   printing it (e.g. its length, or an API call whose answer you summarize).
+   Some Indian internet providers (Jio, Airtel) block TMDB's domains by DNS: if `api.themoviedb.org` doesn't
+   resolve on the computer, use DNS-over-HTTPS for your own checks (`curl --doh-url https://1.1.1.1/dns-query`);
+   the TV usually reaches TMDB fine.
 5. **Build:** `./build.sh` → `FreeMyTV.apk`. Keep `freemytv.keystore`: updates must be signed with the same key.
 6. **Install:** `adb connect <IP>:5555`. The TV asks *Allow USB debugging?*: tell them to accept and tick *Always
    allow*. Then `adb install -r FreeMyTV.apk`. On TCL, also `adb shell "appops set io.freemytv AUTO_START allow || appops set io.freemytv APP_AUTO_START allow"`
@@ -190,6 +207,14 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   the key to the TV. Sony ships its own Apple TV build, `com.apple.atve.sony.appletv`.
   Xiaomi projectors made by Formovie (Fengmi; L1, MediaTek, Google TV 14 tested) send the same `KEYCODE_STEM_1` for
   Netflix (`RemoteKeys.STEM_NETFLIX`); their YouTube button goes to MediaTek's `GlobalKeyReceiver` and stays with the system.
+- Lumen's additions: `Continue` (Continue Watching: titles opened from the home screen, and Stremio progress from
+  `api.strem.io/api/datastoreGet` with `stremio_auth_key`; held OK hides one), the Stremio tab (`Recs.stremioList`,
+  `stremio:///detail/<movie|series>/<imdb id>` links, picks with `app = "stremio"` kept apart from the other tabs),
+  Watchmode links opened in a fresh task (`HomeApps.open`; Netflix's need a `source` extra, Stremio's aren't
+  browsable), posters and logos (`Recs.bestTagged`, `Backdrop.tryLogo`: the first logo bright enough is used as it
+  is, never repainted), and prepared images saved in `cache/recs-ready/` (`Backdrop.save`/`load`; bump `Recs.READY`
+  when what they hold changes). Page 2 (`HomeView.layoutDrawer`) is centered as one block; the shelf's smoked glass is
+  its own layer (`smokeLayer`) that fades by opacity, so no glass is redrawn during the slide.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 - LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017; only transform and opacity animate. `web/tv.js` is the
