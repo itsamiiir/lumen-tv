@@ -38,7 +38,7 @@ Set up in about 30 minutes with Claude Code. One button brings back your TV's or
 - **Safe.** No root, nothing uninstalled, and one button brings the factory home screen back.
 
 <p align="center">
-<img src="docs/screenshots/home.jpg" width="880" alt="The home screen: a large clock, Explore / Movies / Shows / Stremio tabs, The Bear selected with its logo, and the app shelf">
+<img src="docs/screenshots/home.jpg" width="880" alt="The home screen: a large clock, Explore / Movies / Shows / Stremio tabs, Tenzing selected with its title, and the app shelf">
 </p>
 <p align="center">
 <img src="docs/screenshots/stremio-tab.jpg" width="435" alt="The Stremio tab: Jailer with its logo, then Fall 2: Deadpoint and Tulsa King posters">
