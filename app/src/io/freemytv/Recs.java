@@ -958,7 +958,7 @@ final class Recs {
                 ready.setLastModified(System.currentTimeMillis());   // in use: kept by pruneReady
                 synchronized (images) {
                     images.put(p.backdrop, saved);
-                    while (images.size() > 12) images.remove(images.keySet().iterator().next());
+                    while (images.size() > KEPT) images.remove(images.keySet().iterator().next());
                 }
                 notifyListeners();
                 return;
@@ -986,7 +986,7 @@ final class Recs {
             }
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? KEPT : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
             if (forLight) {
@@ -1008,6 +1008,9 @@ final class Recs {
             images.keySet().retainAll(keep);
         }
     }
+
+    /** Titles kept ready in memory: the cards on screen in all four tabs (~4 each), so switching tabs never shows grey. */
+    private static final int KEPT = 18;
 
     /** Bump when what Backdrop.save writes, or how logos and posters are chosen, changes (older ones are rebuilt). */
     private static final String READY = "v1-";
