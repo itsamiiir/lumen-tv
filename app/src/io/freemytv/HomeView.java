@@ -3745,13 +3745,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private boolean picksOn() {
-        return Recs.hasKey(getContext());
+        return Recs.hasKey(getContext()) && Prefs.picks();
     }
 
     private void drawClock(Canvas c) {
         float x = MARGIN * k;
         c.drawText(dateText, x - Ui.leftBearing(lDate, dateText), L_DATE_BASE * k, lDate);
         c.drawText(clockText, x - Ui.leftBearing(lClock, clockText), L_CLOCK_BASE * k, lClock);
+        if (!amPmText.isEmpty()) {
+            // The small AM/PM, as on the header clock, sized to this big one.
+            float size = lAmPm.getTextSize();
+            lAmPm.setTextSize(size * 1.7f);
+            lAmPm.setColor(Ui.alpha(lClock.getColor(), 0.8f));
+            c.drawText(amPmText, x - Ui.leftBearing(lClock, clockText) + lClock.measureText(clockText) + 18 * k, L_CLOCK_BASE * k, lAmPm);
+            lAmPm.setTextSize(size);
+        }
         HomeData.Weather wx = data.weather;
         if (!Prefs.weather() || Double.isNaN(wx.temp)) return;
         if (data.weatherAt != weatherLineAt || Prefs.version != weatherLinePrefs || !Ui.language.equals(weatherLineLanguage)) {

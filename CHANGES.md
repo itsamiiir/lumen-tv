@@ -30,6 +30,7 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
   top recent shows and this week's trending, taking turns. Each title is well rated and has a real poster.
 - **Family filter** (`family_friendly=true`): leaves out titles with sexual content (keywords, adult flag, NC-17);
   violence ratings don't count.
+- **Suggestions On/Off** in *Home Settings*: off shows a big clock (with AM/PM) and the weather, and fetches nothing.
 - **Sony LIV** added to the streaming apps; posters in Hindi, Tamil, Telugu, Malayalam and Kannada, and logos only in
   English or Hindi.
 

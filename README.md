@@ -102,8 +102,8 @@ Older or 1 GB TVs get a lighter graphics mode automatically.
 
 ## Settings
 
-Most settings are on the TV: *Free My TV* → *Home Settings* (language, wallpaper, sounds, temperature, weather,
-your city) and *Shelf* (which apps, in which order). The rest are in `config.properties`, built into the app:
+Most settings are on the TV: *Free My TV* → *Home Settings* (language, suggestions on/off, wallpaper, sounds,
+temperature, weather, your city) and *Shelf* (which apps, in which order). The rest are in `config.properties`, built into the app:
 
 | Setting | What it does |
 |---|---|

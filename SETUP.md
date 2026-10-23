@@ -123,6 +123,7 @@ It turns off the stock home screen and a few promo apps (never uninstalling anyt
 - **Move between pages:** press **down** from the app shelf for Continue Watching, inputs, shortcuts and the weather.
 - **Wallpaper, sounds, temperature, language, city:** *Free My TV → Home Settings* (or the gear button on the home
   screen).
+- **Don't want suggestions?** *Home Settings → Suggestions → Off* shows a big clock with the weather instead.
 - **Shelf apps and order:** *Free My TV → Shelf*, or **hold OK** on a shelf app to move it.
 - **Remove something from Continue Watching:** hold OK on its card, then OK again.
 - **Want more?** Ask Claude: *"add Disney+ to the shelf"*, *"make the clock bigger"*, *"hide anime from the

@@ -89,6 +89,7 @@ final class Spanish {
             case "Light": return "Claro";
             case "Dark": return "Oscuro";
             case "Navigation sounds": return "Sonidos de navegación";
+            case "Suggestions": return "Sugerencias";
             case "Weather widget": return "Widget del clima";
             // What TalkBack reads on the drawer's weather card (#47)
             case ". High ": return ". Máxima ";

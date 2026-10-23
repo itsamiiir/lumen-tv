@@ -262,7 +262,7 @@ final class Recs {
 
     /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
     void refreshIfStale() {
-        if (!hasKey(context) || fetching) return;
+        if (!hasKey(context) || !Prefs.picks() || fetching) return;   // suggestions off: nothing fetched
         long now = System.currentTimeMillis();
         long stamp = sourceStamp();   // a new key, country, animation choice or installed streaming-app set refetches
         boolean newKey = stamp != keyStamp;
@@ -345,7 +345,7 @@ final class Recs {
      * time in the background, so it has more photos. Not used otherwise.
      */
     void prefetchAll() {
-        if (!hasKey(context) || fetching) return;
+        if (!hasKey(context) || !Prefs.picks() || fetching) return;   // suggestions off: nothing fetched
         long sinceFail = System.currentTimeMillis() - failedAt;
         if (failedAt != 0 && sinceFail >= 0 && sinceFail < 10 * 60_000L) return;
         List<Pick> todo = new ArrayList<>();

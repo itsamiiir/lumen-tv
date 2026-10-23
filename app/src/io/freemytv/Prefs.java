@@ -123,6 +123,10 @@ final class Prefs {
 
     // MARK: - Widgets and coins
 
+    /** The suggestions on the home screen (off: the big clock in their place). */
+    static boolean picks() { return sp().getBoolean("picks", true); }
+    static void setPicks(boolean on) { put("picks", on); }
+
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 

@@ -97,6 +97,7 @@ final class German {
             case "Light": return "Hell";
             case "Dark": return "Dunkel";
             case "Navigation sounds": return "Navigationstöne";
+            case "Suggestions": return "Vorschläge";
             case "Weather widget": return "Wetter-Widget";
             // What TalkBack reads on the drawer's weather card (#47)
             case ". High ": return ". Höchstwert ";
