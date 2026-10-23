@@ -1562,14 +1562,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (it.tile != null) roundImage(c, it.tile, cell, r);
         }
         if (fc > 0.01f && l < 0.01f) {
-            // The focus ring: a thin white line just outside the tile, over a faint glow.
-            float gapOut = 6 * k * s, rr = r + gapOut;
+            // The focus ring: a faint hairline just outside the tile, barely there (the lift and shadow lead).
+            float gapOut = 4 * k * s, rr = r + gapOut;
             tmp.set(cell.left - gapOut, cell.top - gapOut, cell.right + gapOut, cell.bottom + gapOut);
-            focusRing.setStrokeWidth(7 * k);
-            focusRing.setColor(Ui.alpha(0xFFFFFFFF, 0.1f * fc));
-            c.drawRoundRect(tmp, rr, rr, focusRing);
-            focusRing.setStrokeWidth(2.5f * k);
-            focusRing.setColor(Ui.alpha(0xFFFFFFFF, 0.88f * fc));
+            focusRing.setStrokeWidth(1.2f * k);
+            focusRing.setColor(Ui.alpha(0xFFFFFFFF, 0.3f * fc));
             c.drawRoundRect(tmp, rr, rr, focusRing);
         }
     }
