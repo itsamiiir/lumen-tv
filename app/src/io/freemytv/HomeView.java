@@ -92,7 +92,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long TOAST_MS = 6000, FADE_MS = 800;
     /** Blur radii of the shadow and shadowDeep paints (Shadows needs them to draw the same blur on older TVs). */
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
-    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, DOTS = 8;
+    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, DOTS = 8,
+            SMOKE_LAYER = 9;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
@@ -144,6 +145,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     });
     private final RectF a11yRect = new RectF();
     private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, dotsLayer;
+    /** The shelf's smoked glass on page 2, over the frosted shelf: it fades by its opacity alone (nothing redrawn). */
+    private final Layer smokeLayer;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -363,6 +366,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case HERO: drawLightTop(c); break;
                 case STATUS: drawLightButtons(c); break;
                 case PLATTER: drawPlatter(c); break;
+                case SMOKE_LAYER: drawSmoke(c); break;
                 case TILES: drawTiles(c); break;
                 case DOTS: drawRowDots(c); break;
                 case DRAWER: drawDrawer(c); break;
@@ -419,6 +423,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroLayer = new Layer(a, HERO);
         status = new Layer(a, STATUS);
         platter = new Layer(a, PLATTER);
+        smokeLayer = new Layer(a, SMOKE_LAYER);
         tiles = new Layer(a, TILES);
         drawerLayer = new Layer(a, DRAWER);
         sheetLayer = new Layer(a, SHEET);
@@ -429,12 +434,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
         for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, dotsLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {sky, heroLayer, dotsLayer, status, platter, smokeLayer, tiles, drawerLayer, sheetLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
         setContentDescription("Free My TV");
         drawerLayer.setVisibility(INVISIBLE);
+        smokeLayer.setVisibility(INVISIBLE);
         for (int i = 0; i < topFocus.length; i++) {
             topFocus[i] = new Spring(0.26f, 0.85f, 0);
             topRects[i] = new RectF();
@@ -551,6 +557,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutStatus();
         heroDirty = statusDirty = drawerDirty = true;
         platter.invalidate();
+        smokeLayer.invalidate();
     }
 
     @Override public void onContinue() {
@@ -570,7 +577,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void invalidateAll() {
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer}) v.invalidate();
+        for (View v : new View[] {sky, heroLayer, status, platter, smokeLayer, tiles, drawerLayer}) v.invalidate();
     }
 
     // MARK: - Size and layers
@@ -584,6 +591,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
         measure(platter, width, Math.round(320 * kk));
+        measure(smokeLayer, width, Math.round(320 * kk));
         measure(tiles, width, Math.round(270 * kk));
         measure(drawerLayer, width, Math.round(820 * kk));   // from Continue Watching's title down to the weather
         measure(sheetLayer, width, height);
@@ -603,6 +611,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
         place(platter, 0, Math.round(750 * kk));
+        place(smokeLayer, 0, Math.round(750 * kk));
         place(tiles, 0, Math.round(790 * kk));
         place(drawerLayer, 0, Math.round(200 * kk));
         sheetLayer.layout(0, 0, width, height);
@@ -749,7 +758,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean drawerItemsMoving = step(drawerFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
         boolean drawerMoving = drawer.step(dt);
-        if (!drawerOpen && !drawerMoving) smoke.target = 0;
+        // Back home: once the shelf has landed (its frosted glass redrawn there, under the smoke), the smoke fades.
+        if (!drawerOpen && !drawerMoving && !drawerWasMoving) smoke.target = 0;
         boolean smokeMoving = smoke.step(dt);
         drawerItemsMoving |= step(cwFocus, dt) | cwSlide.step(dt);
         boolean sheetMoving = sheet.step(dt);
@@ -758,7 +768,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
 
-        if (drawerMoving || sheetMoving || motionDirty) updateMotion();
+        if (drawerMoving || sheetMoving || smokeMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
         // drop frames (measured: ~50 ms of GPU per frame). The app tiles have no glass; the top buttons fade out as
         // they rise; the drawer is drawn resting in place; the glass shelf is redrawn once the drawer stops, so the
@@ -774,8 +784,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (drawerMoving || bgFading) sky.invalidate();
         // The shelf glass follows the drawer as it slides (it reads the background where it really is). With shaders
         // that cost ~50 ms a frame, so there it's redrawn once the drawer stops; the flat glass is cheap every frame.
-        if (bgFading || smokeMoving || (drawerMoving && scene.flat() && smoke.value < 0.001f)
-                || (drawerWasMoving && !drawerMoving)) platter.invalidate();
+        if (bgFading || (drawerMoving && scene.flat() && smoke.value < 0.001f) || (drawerWasMoving && !drawerMoving)) {
+            platter.invalidate();
+        }
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
         if (updateClock()) {
@@ -790,7 +801,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
+                || smokeMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
                 || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
@@ -821,6 +832,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         show(dotsLayer, top, lift);
         show(status, top, lift);
         show(platter, home, lift);
+        show(smokeLayer, home * Ui.clamp(smoke.value), lift);
         show(tiles, home, lift);
         float da = home * smoothstep(0.1f, 0.6f, dc);
         drawerLayer.setTranslationY((1 - d) * shift);
@@ -1046,6 +1058,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroDirty = statusDirty = tilesDirty = drawerDirty = true;
         sky.invalidate();
         platter.invalidate();
+        smokeLayer.invalidate();
     }
 
     /** How dark it is: 0 = day, 1 = night (in between during the transition). */
@@ -1285,6 +1298,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         tilesDirty = true;
         platter.invalidate();
+        smokeLayer.invalidate();
     }
 
     private void layoutShelf() {
@@ -1332,25 +1346,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tmp.offset(0, 18 * k);
         shadow.setColor(tone(0x1F000000, 0x52000000));
         shadows.drawCached(c, tmp, radius, SHADOW_BLUR * k, shadow);   // pre-blurred: redrawn every frame of a drawer slide
-        // White glass by day; smoked glass at night. On page 2, solid smoked glass (see `smoke`).
-        float sm = Ui.clamp(smoke.value);
-        if (sm < 0.999f) {
-            scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
-                    tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1 - sm);
-        }
-        if (sm > 0.001f) {
-            fill.setShader(null);
-            fill.setColor(Ui.alpha(tone(0xFFEDEDF0, 0xFF1C1C1F), 0.94f * sm));
-            c.drawRoundRect(platterRect, radius, radius, fill);
-            rim.setShader(null);
-            rim.setColor(Ui.alpha(tone(0xFF000000, 0xFFFFFFFF), tone(0.06f, 0.12f) * sm));
-            rim.setStrokeWidth(1.2f * k);
-            c.drawRoundRect(platterRect, radius, radius, rim);
-        }
+        // White glass by day; smoked glass at night (on page 2, smokeLayer covers it).
+        scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
+                tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1);
         if (dividerX > 0 && tileRects.length > 0) {
             // The Dock's separator before All Apps: a short hairline.
             RectF t = tileRects[tileRects.length - 1];
             fill.setShader(null);
+            fill.setColor(tone(0x33000000, 0x38FFFFFF));
+            float hw = 1.2f * k, inset = t.height() * 0.18f;
+            c.drawRoundRect(dividerX - hw, t.top + inset, dividerX + hw, t.bottom - inset, hw, hw, fill);
+        }
+    }
+
+    /** The shelf's solid smoked glass for page 2, with the shelf's hairline before All Apps. */
+    private void drawSmoke(Canvas c) {
+        if (shelf.isEmpty()) return;
+        float radius = (TILE_RADIUS + SHELF_PAD) * k;
+        fill.setShader(null);
+        fill.setColor(Ui.alpha(tone(0xFFEDEDF0, 0xFF1C1C1F), 0.94f));
+        c.drawRoundRect(platterRect, radius, radius, fill);
+        rim.setShader(null);
+        rim.setColor(Ui.alpha(tone(0xFF000000, 0xFFFFFFFF), tone(0.06f, 0.12f)));
+        rim.setStrokeWidth(1.2f * k);
+        c.drawRoundRect(platterRect, radius, radius, rim);
+        if (dividerX > 0 && tileRects.length > 0) {
+            RectF t = tileRects[tileRects.length - 1];
             fill.setColor(tone(0x33000000, 0x38FFFFFF));
             float hw = 1.2f * k, inset = t.height() * 0.18f;
             c.drawRoundRect(dividerX - hw, t.top + inset, dividerX + hw, t.bottom - inset, hw, hw, fill);
@@ -1725,7 +1746,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         cont.refresh();   // Stremio's progress, when it's older than 5 minutes
         click.drawer(true);
         smoke.snap(1);      // the shelf turns to smoked glass now, before it moves
-        platter.invalidate();
+        smokeLayer.invalidate();
+        motionDirty = true;
         float x = shelf.isEmpty() ? w / 2f : tileRects[shelfIndex].centerX();
         drawerIndex = nearest(drawerRects, x);
         if (cwItems.isEmpty()) {
