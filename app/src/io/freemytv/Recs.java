@@ -60,7 +60,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 7;
+    private static final int CACHE_VERSION = 8;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -81,6 +81,7 @@ final class Recs {
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
         {"apple tv", "appletv", "com.apple.atve.sony.appletv"},   // Sony's own build
         {"hotstar", "hotstar", "in.startv.hotstar"},   // TMDB: "JioHotstar" (earlier "Disney Plus Hotstar")
+        {"sony liv", "sonyliv", "com.sonyliv"},        // India; Watchmode writes "Sony LIV"
         {"okko", "okko", "ru.more.play"},
         {"crunchyroll", "crunchyroll", "com.crunchyroll.crunchyroid"},
         {"oneplay", "oneplay", "net.cme.voyo.cz.tvapp"},    // Czechia: Voyo and O2 TV became Oneplay, same app
@@ -97,6 +98,7 @@ final class Recs {
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("hotstar", "JioHotstar");
+        SERVICE_NAME.put("sonyliv", "Sony LIV");
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
         SERVICE_NAME.put("oneplay", "Oneplay");
@@ -765,7 +767,8 @@ final class Recs {
                     String name = s.optString("name").toLowerCase(Locale.ROOT).replace(" ", "");
                     String want = service[0].replace(" ", "");
                     boolean same = want.equals("max") ? name.equals("max") : name.contains(want);
-                    if (same && s.optString("type").equals("sub") && s.optString("web_url").startsWith("https://")) link = s.optString("web_url");
+                    String type = s.optString("type");   // "free": with ads or free episodes (Sony LIV's Gullak)
+                    if (same && (type.equals("sub") || type.equals("free")) && s.optString("web_url").startsWith("https://")) link = s.optString("web_url");
                 }
             }
             cache.edit().putString(linkKey(p), link).apply();
