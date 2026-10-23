@@ -100,9 +100,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
-    private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 480;
-    private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
-    private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
+    private static final float L_TITLE_BASE = 142, L_TABBAR_TOP = 170, L_TABBAR_H = 68, L_CARDS_TOP = 274, L_CARD_H = 480;
+    private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 115;
+    private static final float L_PLATTER_TOP = 802, L_TILE_H = 126;
     private static final float L_DATE_BASE = 330, L_CLOCK_BASE = 540, L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
     private static final String[] TABS = {"Explorar", "Filmes", "Séries", "Stremio"};
@@ -176,7 +176,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int rowStart, focusSlot;
     // The row moves on by itself every 10 s (any key restarts the count); the page dots show the time left.
     private static final long AUTO_MS = 10_000;
-    private static final float DOTS_CY = 792;   // between the cards (bottom 742) and the shelf (top ~841)
+    private static final float DOTS_CY = 792;   // between the cards (bottom 754) and the shelf (top ~829)
     private long autoFrom, lastKeyAt;
     // After 2 minutes without a key the row stops moving (and the home screen goes back to doing nothing) until the
     // next key; the screensaver takes over at 10 minutes anyway.
@@ -287,7 +287,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long lastNanos, resumedAt, lastStep;
     private int w, h;
     private float k = 1;
-    private String clockText = "", dateText = "", weatherLine = "";
+    private String clockText = "", amPmText = "", dateText = "", weatherLine = "";
     private long weatherLineAt = -1;
     private int weatherLinePrefs = -1;
     private String weatherLineLanguage = "";
@@ -295,7 +295,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean okDown, backDown;
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
-    private Paint cwTitle, cwSub;
+    private Paint cwTitle, cwSub, lAmPm;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
     private Paint pricePaint, changePaint, sheetTitle;
     private TextPaint titlePaint, gridLabel, toastPaint;
@@ -679,6 +679,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
         // Header with suggestions: the clock in the home screen's style (smaller), the date and weather beside it.
         lHeadClock = Ui.numbers(Ui.displaySemibold, 108 * k, L_INK);
+        lAmPm = Ui.text(Ui.semibold, 30 * k, L_INK);
         lHeadClock.setFontFeatureSettings("'tnum', 'case'");
         lHeadClock.setLetterSpacing(-0.02f);
         lHeadDate = Ui.text(Ui.semibold, 27 * k, L_INK);
@@ -859,6 +860,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (minute == clockMinute || clockPaint == null) return false;
         clockMinute = minute;
         clockText = Ui.clock(now);
+        amPmText = Ui.amPm(now);
         dateText = Ui.date(now);
         return true;
     }
@@ -1559,8 +1561,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else {
             if (it.tile != null) roundImage(c, it.tile, cell, r);
         }
+        if (fc > 0.01f && l < 0.01f) {
+            // The focus ring: a thin white line just outside the tile, over a faint glow.
+            float gapOut = 6 * k * s, rr = r + gapOut;
+            tmp.set(cell.left - gapOut, cell.top - gapOut, cell.right + gapOut, cell.bottom + gapOut);
+            focusRing.setStrokeWidth(7 * k);
+            focusRing.setColor(Ui.alpha(0xFFFFFFFF, 0.1f * fc));
+            c.drawRoundRect(tmp, rr, rr, focusRing);
+            focusRing.setStrokeWidth(2.5f * k);
+            focusRing.setColor(Ui.alpha(0xFFFFFFFF, 0.88f * fc));
+            c.drawRoundRect(tmp, rr, rr, focusRing);
+        }
     }
 
+    private final Paint focusRing = new Paint(Paint.ANTI_ALIAS_FLAG);
+    { focusRing.setStyle(Paint.Style.STROKE); }
     private Paint allAppsLabel;
     private final Paint tabRim = new Paint(Paint.ANTI_ALIAS_FLAG);
     { tabRim.setStyle(Paint.Style.STROKE); }
@@ -3708,7 +3723,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float x = MARGIN * k, base = L_TITLE_BASE * k;
         c.drawText(clockText, x - Ui.leftBearing(lHeadClock, clockText), base, lHeadClock);
         float cap = Ui.cap(lHeadClock), mid = base - cap / 2;
-        float lineX = x + lHeadClock.measureText(clockText) + 30 * k, tx = lineX + 30 * k;
+        float clockEnd = x + lHeadClock.measureText(clockText);
+        if (!amPmText.isEmpty()) {
+            // A small AM/PM on the clock's baseline, a little dimmer, as on Apple's clocks.
+            lAmPm.setColor(Ui.alpha(lHeadClock.getColor(), 0.8f));
+            c.drawText(amPmText, clockEnd + 10 * k, base, lAmPm);
+            clockEnd += 10 * k + lAmPm.measureText(amPmText);
+        }
+        float lineX = clockEnd + 30 * k, tx = lineX + 30 * k;
         fill.setShader(null);
         fill.setColor(tone(0x26000000, 0x38FFFFFF));
         c.drawRect(lineX, base - cap + 8 * k, lineX + 1.5f * k, base - 2 * k, fill);

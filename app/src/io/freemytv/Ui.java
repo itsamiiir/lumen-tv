@@ -168,6 +168,11 @@ final class Ui {
                 : new SimpleDateFormat("HH:mm", locale()).format(new Date(now));
     }
 
+    /** "AM" or "PM" beside the clock in English (12-hour); empty in the other languages (24-hour). */
+    static String amPm(long now) {
+        return en ? new SimpleDateFormat("a", Locale.US).format(new Date(now)) : "";
+    }
+
     /** "5:21" (sunrise and sunset; in English, "5:21 AM"). */
     static String time(long at) {
         return once("time", at, () -> en ? new SimpleDateFormat("h:mm a", Locale.US).format(new Date(at))
