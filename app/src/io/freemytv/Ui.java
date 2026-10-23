@@ -141,6 +141,21 @@ final class Ui {
         return de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
     }
 
+    /**
+     * Text written in English only (the switch code, from Free My TV's later versions): Spanish, German and Russian
+     * from their tables (keyed by the English, which falls back to the English itself), English otherwise.
+     */
+    static String tr(String english) {
+        return de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : english;
+    }
+
+    /** tr with named placeholders: trf("{done}/{total}", "done", 3, "total", 9) → "3/9". */
+    static String trf(String english, Object... pairs) {
+        String out = tr(english);
+        for (int i = 0; i + 1 < pairs.length; i += 2) out = out.replace("{" + pairs[i] + "}", String.valueOf(pairs[i + 1]));
+        return out;
+    }
+
     /** German comes from German.java here too (keyed by the English, with patterns for text built at runtime). */
     static String tr(String pt, String english, String spanish) {
         return de ? German.text(english) : ru ? Russian.text(english) : es ? spanish : en ? english : pt;

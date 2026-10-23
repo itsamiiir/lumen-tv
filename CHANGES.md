@@ -62,6 +62,19 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
   grey cards. They load on two threads, the ones on screen first.
 - Smooth fades: the background and shelf glass fade every frame; the shelf's smoke is its own layer.
 
+## From Free My TV 1.1
+
+- **Switch safety** (`HomeMode.java`, as in Free My TV 1.1): Google TV's setup app goes off first and comes back last;
+  Android's own parts and factory menus can never be turned off; apps that run the HDMI inputs or receive the
+  remote's Input key are checked on the TV and kept on; the switch stops when the Wi-Fi service doesn't answer;
+  *Original* finds the TV's own home screen when none was recorded. Tested on the Vu: Original and back left the same
+  apps off as before.
+- **Lighter return home** (`HomeView.java`): the shelf and All Apps are read again only when apps are installed,
+  removed or updated, the shelf or language changes, or after 15 minutes; a burst of Home presses reads them once.
+  Measured on the Vu: the home screen's CPU time over 8 returns 7.4 → 6.1 s; the return itself unchanged (~0.13 s).
+- Not taken: their translation catalogue, the LG/Samsung, prices and top-button changes, and their Android 8–12
+  glass change (Lumen's glass reads the frosted image there).
+
 ## Settings app
 
 - Restyled in Lumen's dark look (a still gray gradient instead of the animated blue sky, which redrew 10 times a

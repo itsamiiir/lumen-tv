@@ -155,7 +155,11 @@ Then, in the code:
 
 - `HomeMode.DEBLOAT`: add the brand's promo, demo, store-mode and telemetry apps, one comment per line. Only those.
 - `HomeMode.PROTECTED`: add the brand's system pieces: picture, sound, inputs and HDMI-CEC, the tuner and live TV,
-  remote and Bluetooth pairing, setup, updates, system UI. When in doubt, protect it.
+  remote and Bluetooth pairing, setup, updates, system UI. When in doubt, protect it. `mayTurnOff` also refuses
+  Android's own pieces (`CORE`: with the permission controller or package installer off, a TV may not start again) and
+  factory menus (`FACTORY`), and `neededByTv` keeps on, on the TV itself, anything that asks for `TV_INPUT_HARDWARE`
+  (the layer under HDMI and the tuner: off, inputs show "No signal") or receives the remote's Input key
+  (`fusion.android.tv.demo` does on several MediaTek boards).
 - `HomeApps.SHELF`, `LIVE_TV_APPS` and `HIDDEN`: the shelf apps, the brand's live TV app, apps to hide from All Apps.
 - Build, install, have them switch on the TV, read `adb logcat -s FreeMyTV`, then have them switch back to
   *Original* once and confirm everything returned.
@@ -236,8 +240,14 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
 
 ## Always
 
+- Google TV's setup app (`setupwraith`) goes off before the stock home screen and comes back after it, everywhere
+  (`targets` order, `applyOriginal`, `revertHomeNow`, `verifyNow`): with the home screen off and it on, its
+  RecoveryActivity takes Home, and a restart there factory-reset a Xiaomi. If it can't go off, the home screen stays on.
+  The Kalley 43G200 (`R3_GTV`) turns it back on at every start and boot-looped without its home screen: the switch
+  refuses there.
 - Never turn off an app that saved a Wi-Fi network: Android deletes its networks and Original can't bring them
-  back (`wifiOwners` in `HomeMode`).
+  back (`wifiOwners` in `HomeMode`). When the Wi-Fi service doesn't answer, the switch stops on Wi-Fi, and the boot
+  check leaves the setup app and the stock home screen for later.
 - Never commit `config.properties`, `*.keystore` or any key.
 - Never uninstall or clear the data of system apps; only `pm disable-user --user 0`, through `HomeMode`, so
   *Original* can bring it back.
