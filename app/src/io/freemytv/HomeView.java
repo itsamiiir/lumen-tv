@@ -78,11 +78,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Corner capsule.
     // Corner capsule: the height and top offset of the tvOS tab bar (68 and 46).
     private static final float CAPSULE_TOP = 46, CAPSULE_H = 68, BUTTON = 56;
-    // Bottom drawer (measured with it open; everything moves up by SHIFT).
+    // Page 2 (the bottom drawer): the shelf rises and the page is centered (drawerShift, from layoutDrawer).
     // The shelf rises to the top edge; below it Continue Watching, the dock (inputs and shortcuts) and the weather.
-    private static final float SHIFT = 820, DOCK_H = 116, DOCK_PAD = 14, CARDS_H = 300, PAGE_GAP = 40;
+    private static final float DOCK_H = 116, DOCK_PAD = 14, CARDS_H = 300, PAGE_GAP = 40;
     /** Continue Watching, right under the shelf: 16:9 cards, five across (without entries the dock takes its place). */
-    private static final float CW_TITLE = 250, CW_TOP = 272, CW_W = 320, CW_H = 180, CW_GAP = 40;
+    private static final float CW_W = 320, CW_H = 180, CW_GAP = 40;
+    /** How far the shelf rises for page 2, and Continue Watching's title baseline (both from layoutDrawer). */
+    private float drawerShift = 820, cwTitleY;
     private static final int Z_CONT = 6;
     // "All Apps" sheet.
     private static final int COLUMNS = 5, VISIBLE_ROWS = 3;
@@ -593,7 +595,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         measure(platter, width, Math.round(320 * kk));
         measure(smokeLayer, width, Math.round(320 * kk));
         measure(tiles, width, Math.round(270 * kk));
-        measure(drawerLayer, width, Math.round(820 * kk));   // from Continue Watching's title down to the weather
+        measure(drawerLayer, width, Math.round(870 * kk));   // from Continue Watching's title down to the weather
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
         measure(dotsLayer, Math.round(1000 * kk), Math.round(40 * kk));
@@ -826,7 +828,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updateMotion() {
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
         float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
-        float shift = SHIFT * k;
+        float shift = drawerShift;
         float lift = -d * shift;
         show(heroLayer, top, lift);
         show(dotsLayer, top, lift);
@@ -1715,23 +1717,38 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void layoutDrawer() {
         int n = drawerItems.size();
         float left = MARGIN * k, right = CONTENT_R * k;
+        // Centered: the risen shelf, Continue Watching, the dock and the weather as one block, equal room above and
+        // below it (and the content edges' equal room left and right).
+        boolean cards = Prefs.weather() || (Prefs.quotes() && HomeData.active().length > 0);
+        float gap = PAGE_GAP * k, titleRoom = 40 * k;
+        float block = platterRect.height() + gap + (cwItems.isEmpty() ? 0 : titleRoom + CW_H * k + gap) + DOCK_H * k
+                + (cards ? gap + CARDS_H * k : 0);
+        float pageTop = Math.max(24 * k, (h - block) / 2);
+        drawerShift = platterRect.top - pageTop;
+        motionDirty = true;
+        float y = pageTop + platterRect.height() + gap;
+        if (!cwItems.isEmpty()) {
+            cwTitleY = y + 26 * k;
+            y += titleRoom;
+        }
         for (int i = 0; i < cwRects.length; i++) {
             float cx = left + i * (CW_W + CW_GAP) * k;
-            cwRects[i].set(cx, CW_TOP * k, cx + CW_W * k, (CW_TOP + CW_H) * k);
+            cwRects[i].set(cx, y, cx + CW_W * k, y + CW_H * k);
         }
+        if (!cwItems.isEmpty()) y += CW_H * k + gap;
         // The dock: inputs, a hairline, shortcuts, in one row like the app shelf.
-        float dockTop = (cwItems.isEmpty() ? CW_TITLE - 30 : CW_TOP + CW_H + PAGE_GAP) * k;
+        float dockTop = y;
         dockRect.set(left, dockTop, right, dockTop + DOCK_H * k);
-        float pad = DOCK_PAD * k, gap = 10 * k, groupGap = 34 * k;
+        float pad = DOCK_PAD * k, itemGap = 10 * k, groupGap = 34 * k;
         int groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
-        float tw = (dockRect.width() - 2 * pad - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n);
+        float tw = (dockRect.width() - 2 * pad - Math.max(0, n - groups) * itemGap - (groups - 1) * groupGap) / Math.max(1, n);
         float x = left + pad, top = dockTop + pad;
         for (int i = 0; i < n; i++) {
-            if (i == drawerInputs && i > 0) x += groupGap - gap;
+            if (i == drawerInputs && i > 0) x += groupGap - itemGap;
             drawerRects[i].set(x, top, x + tw, dockRect.bottom - pad);
-            x += tw + gap;
+            x += tw + itemGap;
         }
-        float cardsTop = dockRect.bottom + PAGE_GAP * k, split = left + (right - left) * 0.585f;
+        float cardsTop = dockRect.bottom + gap, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
         // A card that is off gives its room to the other one.
         weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
@@ -1832,7 +1849,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Continue Watching: the image with its fade, the title and what's next (or the app), Stremio's progress. */
     private void drawContinue(Canvas c) {
         float slide = cwSlide.value * k;
-        c.drawText(Ui.tr("Continuar assistindo", "Continue Watching"), cwRects[0].left + 4 * k, CW_TITLE * k, rowTitle);
+        c.drawText(Ui.tr("Continuar assistindo", "Continue Watching"), cwRects[0].left + 4 * k, cwTitleY, rowTitle);
         int n = Math.min(cwItems.size(), cwRects.length), top = -1;
         for (int i = 0; i < n; i++) if (cwFocus[i].value > 0.02f && (top < 0 || cwFocus[i].value > cwFocus[top].value)) top = i;
         for (int i = 0; i < n; i++) if (i != top) drawContinueCard(c, i, slide);

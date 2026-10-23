@@ -62,7 +62,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 9;
+    private static final int CACHE_VERSION = 10;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -739,8 +739,9 @@ final class Recs {
      * title's own when there is one. Null when there's none.
      */
     private static String bestTagged(JSONArray list, boolean png, String original) {
-        String best = null;
-        double bestScore = -1;
+        // Logos: the best four, best first ("a|b|c|d"); the TV takes the first that reads well (Recs.loadImage).
+        List<String> paths = new ArrayList<>();
+        List<Double> scores = new ArrayList<>();
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject b = list.optJSONObject(i);
             String path = b == null ? "" : b.optString("file_path", "");
@@ -751,12 +752,13 @@ final class Recs {
             if (png && !readable) continue;
             double score = (lang.equals(Ui.language) ? 4e6 : lang.equals("en") ? 3e6 : lang.equals("hi") ? 2e6 : lang.equals(original) ? 1e6 : 0)
                     + Math.min(b.optInt("vote_count"), 50) * 1000 + b.optDouble("vote_average", 0) * 10;
-            if (score > bestScore) {
-                bestScore = score;
-                best = path;
-            }
+            int at = 0;
+            while (at < scores.size() && scores.get(at) >= score) at++;
+            paths.add(at, path);
+            scores.add(at, score);
         }
-        return best;
+        if (paths.isEmpty()) return null;
+        return png ? String.join("|", paths.subList(0, Math.min(4, paths.size()))) : paths.get(0);
     }
 
     private static String bestBackdrop(JSONObject images) {
@@ -960,7 +962,10 @@ final class Recs {
             boolean forLight = light;
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
-            if (forLight) backdrop.art(art(p.poster, "w780"), art(p.logo, "w500"));
+            if (forLight) {
+                backdrop.art(art(p.poster, "w780"), null);
+                if (p.logo != null) for (String path : p.logo.split("\\|")) if (backdrop.tryLogo(art(path, "w500"))) break;
+            }
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
                 while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());

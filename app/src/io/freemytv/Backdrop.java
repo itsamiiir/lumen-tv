@@ -200,6 +200,12 @@ final class Backdrop {
     /** The logo's largest size on the wide card (at the focused card's size). */
     static final int LOGO_W = ui(460), LOGO_H = ui(150);
 
+    /** Takes this logo if it reads well on the card (bright, see-through); returns whether it did. */
+    boolean tryLogo(Bitmap logoArt) {
+        if (logoArt != null) logo = logo(logoArt);
+        return logo != null;
+    }
+
     /** Takes the poster for the tall cards and the logo for the wide one (either can be null). */
     void art(Bitmap posterArt, Bitmap logoArt) {
         if (posterArt != null) {
@@ -231,7 +237,7 @@ final class Backdrop {
         int[] px = new int[w * h];
         src.getPixels(px, 0, w, 0, 0, w, h);
         int x0 = w, y0 = h, x1 = -1, y1 = -1;
-        double lum = 0;
+        double bright = 0;
         int solid = 0;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
@@ -242,13 +248,14 @@ final class Backdrop {
                 if (y < y0) y0 = y;
                 if (y > y1) y1 = y;
                 if ((p >>> 24) > 128) {
-                    lum += (0.2126 * ((p >> 16) & 255) + 0.7152 * ((p >> 8) & 255) + 0.0722 * (p & 255)) / 255;
+                    bright += Math.max((p >> 16) & 255, Math.max((p >> 8) & 255, p & 255)) / 255.0;
                     solid++;
                 }
             }
         }
-        // Nothing drawn, or a box with no see-through parts (some uploads are a picture, not a logo): the name instead.
-        if (x1 < x0 || y1 < y0 || solid > 0.9 * (x1 - x0 + 1) * (y1 - y0 + 1)) {
+        // Nothing drawn, a box with no see-through parts (some uploads are a picture, not a logo), or too dark to read
+        // on the card's dark fade (a bronze or black version; painting those white made blobs): the next one, or the name.
+        if (x1 < x0 || y1 < y0 || solid > 0.9 * (x1 - x0 + 1) * (y1 - y0 + 1) || bright / Math.max(1, solid) < 0.6) {
             src.recycle();
             return null;
         }
@@ -256,11 +263,8 @@ final class Backdrop {
         float scale = Math.min(1, Math.min((float) LOGO_W / cw, (float) LOGO_H / ch));
         int ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale));
         Bitmap out = Bitmap.createBitmap(ow, oh, Bitmap.Config.ARGB_8888);
-        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
-        if (solid > 0 && lum / solid < 0.42) {
-            paint.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
-        }
-        new Canvas(out).drawBitmap(src, new android.graphics.Rect(x0, y0, x1 + 1, y1 + 1), new RectF(0, 0, ow, oh), paint);
+        new Canvas(out).drawBitmap(src, new android.graphics.Rect(x0, y0, x1 + 1, y1 + 1), new RectF(0, 0, ow, oh),
+                new Paint(Paint.FILTER_BITMAP_FLAG));
         src.recycle();
         return gpu(out);
     }
