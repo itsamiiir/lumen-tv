@@ -131,6 +131,9 @@ It turns off the stock home screen and a few promo apps (never uninstalling anyt
 - **Don't want suggestions?** *Home Settings → Suggestions → Off* shows a big clock with the weather instead.
 - **Shelf apps and order:** *Free My TV → Shelf*, or **hold OK** on a shelf app to move it.
 - **Remove something from Continue Watching:** hold OK on its card, then OK again.
+- **Continue Watching shows** what you open from Lumen's suggestions and your Stremio progress, not movies you pick
+  inside JioHotstar, Netflix or Prime Video (Android keeps those for the TV's built-in home screen).
+  [Details →](README.md#what-continue-watching-can-and-cant-show)
 - **Want more?** Ask Claude: *"add Disney+ to the shelf"*, *"make the clock bigger"*, *"hide anime from the
   suggestions"*. Then it rebuilds and reinstalls.
 

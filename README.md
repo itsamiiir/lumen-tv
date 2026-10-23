@@ -124,6 +124,17 @@ frosted glass shaders need Android 13; on 9 to 12 the glass is drawn with simple
 apps that can be turned off. Claude Code checks your TV and adds them before switching; it's part of the setup.
 Older or 1 GB TVs get a lighter graphics mode automatically.
 
+## What Continue Watching can and can't show
+
+- **Titles you open from Lumen's suggestions** (Explore, Movies, Shows, Stremio) are added as soon as you select
+  them, and reopen on their own page in their app. Their progress isn't shown: only the app knows where you stopped.
+- **Stremio titles you're partway through** show the time left and a progress line, read from your Stremio account
+  (with `stremio_auth_key`).
+- **Not shown: anything you start inside an app.** If you open JioHotstar, Netflix or Prime Video from the shelf and
+  pick a movie there, Lumen can't see it. Those apps do report what you're watching to Android's "Watch Next" list,
+  but Android lets only the TV's built-in home screen read it: the permission is reserved for system apps and can't
+  be granted to another app, not even over adb. For those, resume from the app's own "Continue Watching" row.
+
 ## Settings
 
 Most settings are on the TV: *Free My TV* → *Home Settings* (language, suggestions on/off, wallpaper, sounds,
