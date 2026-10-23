@@ -9,9 +9,12 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -126,7 +129,8 @@ public class SettingsActivity extends Activity {
         private static final int AMBER = 0xFFFFC266, INK = 0xFF1C1C1E;
 
         private final SettingsActivity activity;
-        private final Scene scene = new Scene();
+        /** Lumen's dark look: a deep gray gradient with a soft glow behind the title (painted once per size). */
+        private final Paint bgFill = new Paint(), glowFill = new Paint();
         private final Handler handler = new Handler(Looper.getMainLooper());
         private final Spring[] pop = new Spring[16];   // one per row of the longest list (Home Settings: up to 14)
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
@@ -147,10 +151,10 @@ public class SettingsActivity extends Activity {
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
         private String errorShown;
         private final Spoken spoken;
-        private long startedAt, lastNanos, pendingAt, lastSky;
+        private long startedAt, lastNanos, pendingAt;
         private int w, h;
         private float k = 1;
-        private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
+        private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, warn, spinner, white, shadow;
         private TextPaint notice;
 
         private final Runnable poll = new Runnable() {
@@ -177,10 +181,6 @@ public class SettingsActivity extends Activity {
             super(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
-            HomeData.Weather wx = HomeData.get(a).weather;
-            Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
-            scene.setMotion(0.5f, 0.2f);
-            scene.applyPalette();
             setFocusable(true);
             setContentDescription("Free My TV");
             // TalkBack: one item per row, id = row + 1.
@@ -287,7 +287,7 @@ public class SettingsActivity extends Activity {
             if (!running) return;
             boolean moving = busy();
             for (Spring s : pop) moving |= !s.settled();
-            if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();
+            if (moving) invalidate();   // nothing moves at rest (the old animated sky redrew 10 times a second)
             Choreographer.getInstance().postFrameCallback(this);
         }
 
@@ -295,7 +295,8 @@ public class SettingsActivity extends Activity {
             w = width;
             h = height;
             k = w / 1920f;
-            scene.setSize(w, h);
+            bgFill.setShader(new LinearGradient(0, 0, 0, h, 0xFF1C1C20, 0xFF09090B, Shader.TileMode.CLAMP));
+            glowFill.setShader(new RadialGradient(500 * k, 480 * k, 620 * k, 0x1AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
             title = Ui.text(Ui.displaySemibold, 50 * k, 0xFFFFFFFF);
             title.setTextAlign(Paint.Align.CENTER);
             subtitle = Ui.text(Ui.regular, 26 * k, 0x99FFFFFF);
@@ -308,9 +309,6 @@ public class SettingsActivity extends Activity {
             rowSub = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             header = Ui.text(Ui.semibold, 21 * k, 0x73FFFFFF);
             header.setLetterSpacing(0.06f);
-            cellLabel = Ui.text(Ui.regular, 25 * k, 0xD9FFFFFF);
-            cellValue = Ui.numbers(Ui.regular, 25 * k, 0xD9FFFFFF);
-            cellValue.setTextAlign(Paint.Align.RIGHT);
             warn = Ui.text(Ui.regular, 23 * k, AMBER);
             notice = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xB3FFFFFF));
             spinner = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -359,18 +357,15 @@ public class SettingsActivity extends Activity {
             }
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
-            if (up - lastSky >= 100) {
-                lastSky = up;
-                scene.advance(seconds);
-            }
-            scene.drawBackground(c);
+            c.drawRect(0, 0, w, h, bgFill);
+            c.drawRect(0, 0, w, h, glowFill);
 
-            // On the left: big symbol, title, description.
+            // On the left: the symbol, title, description.
             float cx = 500 * k;
-            Symbols.draw(getContext(), c, "sparkles", cx, 400 * k, 150 * k, 0xEBFFFFFF);
-            c.drawText("Free My TV", cx, 612 * k, title);
-            c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
-            c.drawText(versionName(getContext()), cx, 704 * k, version);
+            Symbols.draw(getContext(), c, "sparkles", cx, 380 * k, 130 * k, 0xEBFFFFFF);
+            c.drawText("Free My TV", cx, 578 * k, title);
+            c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 626 * k, subtitle);
+            c.drawText("Lumen TV · " + versionName(getContext()), cx, 670 * k, version);
 
             if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
         }
@@ -411,7 +406,7 @@ public class SettingsActivity extends Activity {
                 }
             }
 
-            float y = (LIST_TOP + 6 * (ROW_H + ROW_GAP) + 20) * k;
+            float y = (LIST_TOP + MAIN_ROWS.length * (ROW_H + ROW_GAP) + 30) * k;
             String error = state.optString("error");
             if (working && (busyText.contains("Permitir") || busyText.contains("Allow") || busyText.contains("разрешите"))) {
                 c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."),
@@ -431,15 +426,13 @@ public class SettingsActivity extends Activity {
                 c.restore();
                 y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 46 * k;
             }
-            y = drawComparison(c, y);
-            y = drawRecs(c, y + 26 * k);
-            drawNotices(c, y + 40 * k);
+            drawRecs(c, Math.max(y, (LIST_TOP + MAIN_ROWS.length * (ROW_H + ROW_GAP) + 70) * k));
         }
 
-        /** Home screen picks: status, and the credit TMDB asks for. */
+        /** Suggestions: their status, and the credits TMDB (and Watchmode) ask for. All of it fits under the menu. */
         private float drawRecs(Canvas c, float y) {
             float x = LIST_X * k + 30 * k;
-            c.drawText(Ui.tr("RECOMENDAÇÕES", "RECOMMENDATIONS"), x, y, header);
+            c.drawText(Ui.tr("SUGESTÕES", "SUGGESTIONS"), x, y, header);
             String line;
             String error = recs.optString("error");
             int count = recs.optInt("count");
@@ -449,7 +442,7 @@ public class SettingsActivity extends Activity {
             else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos, 9 por aba, renovados a cada hora.",
                     "On · " + count + " titles, 9 per tab, a new set every hour.");
             else line = Ui.tr("Buscando os títulos…", "Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+            c.drawText(TextUtils.ellipsize(line, notice, (LIST_R - LIST_X - 60) * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
             version.setTextAlign(Paint.Align.LEFT);
             c.drawText(Ui.tr("Usa a API do TMDB, sem endosso ou certificação do TMDB.",
                     "This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
@@ -477,42 +470,6 @@ public class SettingsActivity extends Activity {
                 rowRect.set(tmp);
             }
             return f;
-        }
-
-        private float drawComparison(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k, colA = LIST_R * k - 220 * k, colB = LIST_R * k - 30 * k;
-            c.drawText(Ui.tr("COMPARAÇÃO", "COMPARISON"), x, y, header);
-            cellValue.setColor(0x73FFFFFF);
-            c.drawText(Ui.tr("Original", "Original"), colA, y, cellValue);
-            c.drawText("Free My TV", colB, y, cellValue);
-            cellValue.setColor(0xD9FFFFFF);
-            JSONObject metrics = state.optJSONObject("metrics");
-            JSONObject a = metrics == null ? null : metrics.optJSONObject(HomeMode.ORIGINAL);
-            JSONObject b = metrics == null ? null : metrics.optJSONObject(HomeMode.FREE);
-            String[][] rows = {{Ui.tr("Botão Início", "Home button"), "homeMs"}, {Ui.tr("Memória livre", "Free memory"), "memAvailableMB"},
-                    {Ui.tr("Memória do Início", "Home screen memory"), "homePssMB"}};
-            for (int i = 0; i < rows.length; i++) {
-                float base = y + (46 + 40 * i) * k;
-                c.drawText(rows[i][0], x, base, cellLabel);
-                c.drawText(metric(a, rows[i][1]), colA, base, cellValue);
-                c.drawText(metric(b, rows[i][1]), colB, base, cellValue);
-            }
-            return y + (46 + 40 * rows.length) * k;
-        }
-
-        private void drawNotices(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
-            c.drawText(Ui.tr("AVISOS", "NOTICES"), x, y, header);
-            JSONArray notices = state.optJSONArray("notices");
-            int shown = 0;
-            for (int i = 0; notices != null && i < notices.length() && shown < 2; i++) {
-                JSONObject o = notices.optJSONObject(i);
-                if (o == null) continue;
-                String line = ago(o.optLong("at")) + " · " + (Ui.ru ? Russian.text(o.optString("text")) : o.optString("text"));
-                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
-                shown++;
-            }
-            if (shown == 0) c.drawText(Ui.tr("Nenhum ainda.", "None yet."), x, y + 42 * k, notice);
         }
 
         /** Home screen choice: Free My TV or the original, with a check on the one in use. */
@@ -548,27 +505,11 @@ public class SettingsActivity extends Activity {
                     | (Math.round(ag + (bg - ag) * f) << 8) | Math.round(ab + (bb - ab) * f);
         }
 
-        private static String metric(JSONObject m, String key) {
-            if (m == null || !m.has(key)) return "—";
-            long v = m.optLong(key);
-            if (key.equals("homeMs")) return v + (Ui.ru ? " мс" : " ms");
-            if (key.equals("memAvailableMB") && v >= 1024) return String.format(Ui.locale(), Ui.ru ? "%.2f ГБ" : "%.2f GB", v / 1024.0);
-            return v + (Ui.ru ? " МБ" : " MB");
-        }
-
-        private static String ago(long at) {
-            long minutes = Math.max(0, (System.currentTimeMillis() - at) / 60_000);
-            if (minutes < 1) return Ui.tr("agora", "now");
-            if (minutes < 60) return Ui.tr("há " + minutes + " min", minutes + " min ago");
-            if (minutes < 48 * 60) return Ui.tr("há " + (minutes / 60) + " h", (minutes / 60) + " h ago");
-            return Ui.tr("há " + (minutes / 1440) + " dias", (minutes / 1440) + " days ago");
-        }
-
         private static String versionName(Context c) {
             try {
-                return "Free My TV " + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+                return "v" + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
             } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                return "Free My TV";
+                return "";
             }
         }
 

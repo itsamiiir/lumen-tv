@@ -62,6 +62,12 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
   grey cards. They load on two threads, the ones on screen first.
 - Smooth fades: the background and shelf glass fade every frame; the shelf's smoke is its own layer.
 
+## Settings app
+
+- Restyled in Lumen's dark look (a still gray gradient instead of the animated blue sky, which redrew 10 times a
+  second). The Comparison and Notices sections are gone; the menu ends with one Suggestions status line and the TMDB
+  and Watchmode credits, so nothing is cut off at the bottom.
+
 ## Light look
 
 - The shelf, top buttons and drawer glass read the lightened background (they took the poster's raw colors).
