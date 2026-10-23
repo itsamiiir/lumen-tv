@@ -118,6 +118,11 @@ It turns off the stock home screen and a few promo apps (never uninstalling anyt
 > If your Wi-Fi was saved during the TV's first setup, the switch stops and asks you to *forget* the Wi-Fi network
 > and connect again in *Settings → Network*. That's a one-time thing; then switch again.
 
+> **The first minute is slower.** Right after switching, turning the TV on, or an update, the home screen prepares
+> its graphics and downloads and caches the suggestion images, while the TV's own apps are still starting. It can
+> stutter or show grey cards briefly; give it a minute and it's smooth from then on.
+> [Why, in detail →](README.md#a-slower-first-minute-is-normal)
+
 ## 8. Make it yours
 
 - **Move between pages:** press **down** from the app shelf for Continue Watching, inputs, shortcuts and the weather.
@@ -160,6 +165,10 @@ Add a Watchmode key (step 5). Some titles have no link on Watchmode; those alway
 
 **On TCL TVs the switch does nothing.**
 TCL blocks background tasks by default; Claude allows the app to run (it's in its instructions).
+
+**Still slow after a few minutes.**
+Restart the TV once (hold the power button, or unplug it for 10 seconds). If it persists, check that the TV has a
+stable internet connection: suggestion images that fail to download are retried, which keeps it busy.
 
 **Something looks wrong after an update of the TV's software.**
 Open *Free My TV* and choose *Home Screen → Free My TV* again. If anything misbehaves, *Original* always brings

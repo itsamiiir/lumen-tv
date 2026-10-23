@@ -76,6 +76,25 @@ adb install -r FreeMyTV.apk
 
 Then on the TV: *Free My TV* → *Home Screen* → *Free My TV*.
 
+## A slower first minute is normal
+
+Right after the TV turns on (or after you install or update Lumen TV), the home screen can feel slower or
+stutter for a short while. Nothing is wrong. It settles by itself; here is what's happening:
+
+- **The TV itself is still starting up.** For the first 30–60 seconds after power-on, Android and the TV maker's
+  services, Google Play and your streaming apps all start at once and compete for the same processor.
+- **The graphics are being prepared.** The first time each screen, animation and glass effect is drawn, Android
+  builds and caches what the graphics chip needs. After installing or updating the app this cache starts empty,
+  so the very first start takes about twice as long (~1.6 s instead of ~0.9 s on the Vu we tested).
+- **Suggestions are being fetched and prepared.** The list comes from TMDB every 6 hours. Each new title's
+  posters, logo and blurred backgrounds are downloaded and prepared once (~0.5 s each, two at a time), then saved
+  on the TV. Until that's done, some cards can show grey for a moment. After that, a start shows them in ~0.1 s.
+- **Links and Continue Watching fill in.** Watchmode links and your Stremio progress are looked up in the
+  background and saved too.
+
+After the first minute everything is cached, and moving around is smooth (about 17 ms a frame on the shelf). If it
+still feels slow after a few minutes, see [Troubleshooting](SETUP.md#troubleshooting).
+
 ## Which TVs
 
 **Requirement: Google TV or Android TV, Android 9 (Pie) or newer.** To check, on the TV open *Settings → System →
