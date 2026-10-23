@@ -47,6 +47,8 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String poster, logo;    // the official poster (with its title) and the title's logo, or null
+        String imdb;            // IMDb id (what Stremio goes by), not saved
+        boolean adult;          // left out by family_friendly, not saved
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
     }
@@ -60,7 +62,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 8;
+    private static final int CACHE_VERSION = 9;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -99,6 +101,7 @@ final class Recs {
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("hotstar", "JioHotstar");
         SERVICE_NAME.put("sonyliv", "Sony LIV");
+        SERVICE_NAME.put("stremio", "Stremio");
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
         SERVICE_NAME.put("oneplay", "Oneplay");
@@ -199,7 +202,8 @@ final class Recs {
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
+            boolean inStremio = STREMIO_APP.equals(p.app);   // the Stremio tab's own picks, only there
+            if ((STREMIO_APP.equals(kind) ? inStremio : !inStremio && (kind == null || kind.equals(p.kind)))
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
         }
         if (list.isEmpty()) return list;
@@ -377,7 +381,7 @@ final class Recs {
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (String kind : new String[] {null, "movie", "tv"}) {
+        for (String kind : new String[] {null, "movie", "tv", STREMIO_APP}) {
             for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
         }
         return out;
@@ -385,7 +389,7 @@ final class Recs {
 
     /** Movies and shows are numbered separately on TMDB: a pick is identified by type + number. */
     static String key(Pick p) {
-        return p.kind + ":" + p.id;
+        return p.kind + ":" + p.id + (STREMIO_APP.equals(p.app) ? ":stremio" : "");
     }
 
     private void notifyListeners() {
@@ -430,6 +434,7 @@ final class Recs {
             for (int i = 0; list.size() < 30 && i < 20; i++) {
                 for (List<Pick> g : groups) if (i < g.size() && list.size() < 30 && seen.add(key(g.get(i)))) list.add(g.get(i));
             }
+            if (installed(STREMIO)) list.addAll(stremioList(noCartoons));
         } else {
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
@@ -480,6 +485,69 @@ final class Recs {
             if (p.pkg != null && (ORIGIN.isEmpty() || p.poster != null)) out.add(p);
         }
         return out;
+    }
+
+    static final String STREMIO = "com.stremio.one", STREMIO_APP = "stremio";
+
+    /**
+     * The Stremio tab: popular, well-rated movies and shows of the last years, this week's trending movies and the
+     * country's popular movies, whatever app has them (Stremio's add-ons find the streams), taking turns, up to 24.
+     * Each opens on its page in Stremio.
+     */
+    private List<Pick> stremioList(String noCartoons) throws Exception {
+        String any = "&language=" + lang() + "&include_adult=false&sort_by=popularity.desc";
+        List<List<Pick>> groups = new ArrayList<>();
+        groups.add(stremioGroup("/discover/movie?vote_count.gte=300&vote_average.gte=6.8&primary_release_date.gte="
+                + day(-3 * 365) + any + noCartoons, "movie"));
+        groups.add(stremioGroup("/discover/tv?vote_count.gte=200&vote_average.gte=7.2&first_air_date.gte=" + day(-5 * 365)
+                + "&without_genres=16|10764|10767" + any, "tv"));
+        groups.add(stremioGroup("/trending/movie/week?language=" + lang(), "movie"));
+        if (!ORIGIN.isEmpty()) {
+            groups.add(stremioGroup("/discover/movie?with_origin_country=" + ORIGIN + "&vote_count.gte=50&vote_average.gte=6.5"
+                    + "&primary_release_date.gte=" + day(-6 * 365) + any + noCartoons, "movie"));
+        }
+        List<Pick> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (int i = 0; out.size() < 24 && i < 8; i++) {
+            for (List<Pick> g : groups) if (i < g.size() && out.size() < 24 && seen.add(key(g.get(i)))) out.add(g.get(i));
+        }
+        return out;
+    }
+
+    private List<Pick> stremioGroup(String path, String kind) throws Exception {
+        JSONArray results = get(path).getJSONArray("results");
+        List<Pick> out = new ArrayList<>();
+        for (int i = 0; i < results.length() && out.size() < 8; i++) {
+            JSONObject o = results.getJSONObject(i);
+            if (o.optDouble("vote_average", 0) < 6.5 || o.optInt("vote_count") < 50) continue;
+            if (kind.equals("tv") && animated(o)) continue;
+            List<Pick> one = new ArrayList<>();
+            add(one, o, kind);
+            if (one.isEmpty()) continue;
+            Pick p = one.get(0);
+            try {
+                fetchDetails(p);
+            } catch (Exception e) {
+                continue;
+            }
+            if (p.adult || p.poster == null || p.imdb == null) continue;
+            // The details named the app it's on ("... · Netflix"): here it's Stremio.
+            String was = p.app == null ? null : SERVICE_NAME.get(p.app);
+            if (was != null && p.meta.endsWith(" · " + was)) p.meta = p.meta.substring(0, p.meta.length() - was.length() - 3);
+            else if (was != null && p.meta.equals(was)) p.meta = "";
+            p.app = STREMIO_APP;
+            p.pkg = STREMIO;
+            p.link = "stremio:///detail/" + (kind.equals("movie") ? "movie" : "series") + "/" + p.imdb;
+            p.meta = p.meta.isEmpty() ? "Stremio" : p.meta + " · Stremio";
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** Whether the Stremio tab has picks (Stremio installed and its list fetched). */
+    boolean stremioOn() {
+        for (Pick p : picks) if (STREMIO_APP.equals(p.app)) return installed(STREMIO);
+        return false;
     }
 
     /** One group of the mix: the well-rated ones of a TMDB list (trending lists aren't filtered by TMDB), checked. */
@@ -541,10 +609,13 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images"
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids"
                 + (Config.FAMILY_FRIENDLY ? (p.kind.equals("movie") ? ",release_dates" : "") + ",keywords" : "")
                 + "&include_image_language=null," + Ui.language + ",en" + (ORIGIN.equals("IN") ? ",hi,ta,te,ml,kn" : ""));
         p.title = title(p, o);
+        JSONObject ids = o.optJSONObject("external_ids");
+        String imdb = ids == null ? "" : ids.optString("imdb_id", "");
+        p.imdb = imdb.startsWith("tt") ? imdb : null;
         JSONObject images = o.optJSONObject("images");
         String best = bestBackdrop(images);
         if (best != null) p.backdrop = best;
@@ -582,6 +653,7 @@ final class Recs {
         }
         if (Config.FAMILY_FRIENDLY && forAdults(p, o)) {
             p.app = p.pkg = null;   // treated like a title on none of the TV's apps: never shown
+            p.adult = true;
             AppLog.w("left out (family): \u201c" + p.title + "\u201d");
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));

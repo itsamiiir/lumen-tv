@@ -384,6 +384,8 @@ final class HomeApps {
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
                     // Netflix's TV app opens the title only when the link says where it comes from (as Google TV's
                     // launcher does); without it, its home screen.
+                    // Stremio's own stremio:// links aren't declared browsable.
+                    if (!it.uri.startsWith("http")) intent.removeCategory(Intent.CATEGORY_BROWSABLE);
                     if (it.pkg.equals("com.netflix.ninja")) {
                         intent.removeCategory(Intent.CATEGORY_BROWSABLE);
                         intent.putExtra("source", "30");
