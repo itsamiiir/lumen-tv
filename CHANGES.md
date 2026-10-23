@@ -30,6 +30,8 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
   top recent shows and this week's trending, taking turns. Each title is well rated and has a real poster.
 - **Family filter** (`family_friendly=true`): leaves out titles with sexual content (keywords, adult flag, NC-17);
   violence ratings don't count.
+- **Removed what doesn't apply:** the crypto quotes widget and its coin rows; *Remote Buttons* is hidden on TVs
+  whose remote buttons it can't change (it listed TCL buttons on a Vu).
 - **Suggestions On/Off** in *Home Settings*: off shows a big clock (with AM/PM) and the weather, and fetches nothing.
 - **Sony LIV** added to the streaming apps; posters in Hindi, Tamil, Telugu, Malayalam and Kannada, and logos only in
   English or Hindi.
@@ -59,4 +61,10 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
 - Suggestion images are prepared once and saved, so after the TV turns on they show in ~0.1 s instead of ~1.3 s of
   grey cards. They load on two threads, the ones on screen first.
 - Smooth fades: the background and shelf glass fade every frame; the shelf's smoke is its own layer.
+
+## Light look
+
+- The shelf, top buttons and drawer glass read the lightened background (they took the poster's raw colors).
+- All Apps, messages and the wallpaper picker follow light and dark; messages and the picker sit beside the
+  header's date instead of over it.
 - The home screen uses 0% CPU while you're in an app and stays Android's protected home process.

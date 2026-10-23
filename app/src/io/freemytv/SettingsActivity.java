@@ -113,6 +113,12 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
+        /**
+         * The main menu's rows by id (0 Home Screen, 1 Screensaver, 2 Home Settings, 3 Shelf, 4 Remote Buttons, 5 TV
+         * Settings). Remote Buttons only on the TVs whose app buttons it can change (RemoteKeys.supported); elsewhere,
+         * like a Vu, it listed TCL buttons that do nothing.
+         */
+        private static final int[] MAIN_ROWS = RemoteKeys.supported() ? new int[] {0, 1, 2, 3, 4, 5} : new int[] {0, 1, 2, 3, 5};
         private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
@@ -211,7 +217,8 @@ public class SettingsActivity extends Activity {
                     }
                     String[] names = {Ui.tr("Tela de Descanso, ver agora", "Screensaver, preview"), Ui.tr("Ajustes do Início", "Home Settings"),
                             Ui.tr("Prateleira", "Shelf"), Ui.tr("Botões do Controle", "Remote Buttons"), Ui.tr("Ajustes da TV", "TV Settings")};
-                    return row - 1 < names.length ? names[row - 1] : "";
+                    int id = row < MAIN_ROWS.length ? MAIN_ROWS[row] : 99;
+                    return id - 1 < names.length ? names[id - 1] : "";
                 }
                 case HOME_CHOICE: {
                     String name = row == 0 ? "Free My TV, " + Ui.tr("sem anúncios, com a tela de descanso nova", "no ads, with the new screensaver")
@@ -332,7 +339,7 @@ public class SettingsActivity extends Activity {
 
         private int rowCount() {
             switch (screen) {
-                case MAIN: return 6;
+                case MAIN: return MAIN_ROWS.length;
                 case HOME_CHOICE: return 2;
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
@@ -376,19 +383,20 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Ajustes do Início", "Home Settings"), Ui.tr("Prateleira", "Shelf"),
                     Ui.tr("Botões do Controle", "Remote Buttons"), Ui.tr("Ajustes da TV", "TV Settings")};
             String[] values = {working ? "" : mode, Ui.tr("Ver agora", "Preview"), "", "", "", ""};
-            for (int i = 0; i < 6; i++) {
+            for (int i = 0; i < MAIN_ROWS.length; i++) {
+                int id = MAIN_ROWS[i];
                 float y = (LIST_TOP + i * (ROW_H + ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
                 float f = drawRowBackground(c, i);
                 int ink = blend(0xF2FFFFFF, INK, f);
                 rowLabel.setColor(ink);
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
+                c.drawText(labels[id], rowRect.left + 30 * k, base, rowLabel);
                 float right = rowRect.right - 30 * k;
-                if (i >= 2) {
+                if (id >= 2) {
                     float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
                     Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0x991C1C1E, f));
-                } else if (i == 0 && working) {
+                } else if (id == 0 && working) {
                     // Switching: the current step in place of the value, with the spinning arc.
                     String text = busyText.isEmpty() ? Ui.tr("Começando…", "Starting…") : busyText;
                     rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
@@ -399,7 +407,7 @@ public class SettingsActivity extends Activity {
                     Ui.spinner(c, sx, rowRect.centerY(), 12 * k, seconds * 1.3f, spinner);
                 } else {
                     rowValue.setColor(blend(0x8CFFFFFF, 0x8C1C1C1E, f));
-                    c.drawText(values[i], right, base, rowValue);
+                    c.drawText(values[id], right, base, rowValue);
                 }
             }
 
@@ -437,8 +445,9 @@ public class SettingsActivity extends Activity {
             int count = recs.optInt("count");
             if (!hasKey) line = Ui.tr("Sem chave do TMDB: veja o README (config.properties).", "No TMDB key: see the README (config.properties).");
             else if (!error.isEmpty()) line = Ui.tr("Erro: ", "Error: ") + error + ".";
-            else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos nos apps da TV, 3 novos a cada hora.",
-                    "On · " + count + " titles from the TV's apps, 3 new ones every hour.");
+            else if (!Prefs.picks()) line = Ui.tr("Desligadas em Ajustes do Início.", "Off in Home Settings.");
+            else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos, 9 por aba, renovados a cada hora.",
+                    "On · " + count + " titles, 9 per tab, a new set every hour.");
             else line = Ui.tr("Buscando os títulos…", "Fetching titles…");
             c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
             version.setTextAlign(Paint.Align.LEFT);
@@ -611,7 +620,7 @@ public class SettingsActivity extends Activity {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
                             } else {
-                                focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
+                                focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;   // rows 0-4 keep their place
                                 screen = MAIN;
                             }
                         }
@@ -628,12 +637,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, suggestions, wallpaper, sounds, sound style, weather, city, quotes, then coins. */
-        private static final int PICKS_ROW = 3, CITY_ROW = 8, COIN_ROWS = 10;
-
-        private boolean dollar() {
-            return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
-        }
+        /** Home Settings: language, temperature, theme, suggestions, wallpaper, sounds, sound style, weather, city. */
+        private static final int PICKS_ROW = 3, CITY_ROW = 8;
 
         private String[] settingLabels() {
             List<String> l = new ArrayList<>();
@@ -646,11 +651,6 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Estilo do som", "Sound style"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
-            l.add(Ui.tr("Widget de cotações", "Quotes widget"));
-            l.add("Bitcoin");
-            l.add("Ethereum");
-            l.add("Solana");
-            if (dollar()) l.add(Ui.tr("Dólar", "Dollar"));
             return l.toArray(new String[0]);
         }
 
@@ -671,9 +671,6 @@ public class SettingsActivity extends Activity {
             v[6] = Click.label(Prefs.soundStyle());
             v[7] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
-            v[9] = onOff(Prefs.quotes());
-            // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
         }
 
@@ -763,11 +760,7 @@ public class SettingsActivity extends Activity {
                 }
                 case 7: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
-                case 9: Prefs.setQuotes(!Prefs.quotes()); break;
-                default:
-                    if (!Prefs.quotes()) return;
-                    Prefs.setCoin(focus - COIN_ROWS, !Prefs.coin(focus - COIN_ROWS));
-                    break;
+                default: return;
             }
             HomeData.get(getContext()).settingsChanged();
         }
@@ -964,9 +957,7 @@ public class SettingsActivity extends Activity {
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
-                rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
-                if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
+                rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);

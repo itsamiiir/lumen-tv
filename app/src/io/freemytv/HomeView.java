@@ -619,7 +619,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
         sheetLayer.setPivotY(height / 2f);
-        place(toastLayer, (width - toastLayer.getMeasuredWidth()) / 2, 0);
+        place(toastLayer, Math.round(TOAST_CX * kk) - toastLayer.getMeasuredWidth() / 2, 0);
         place(dotsLayer, (width - dotsLayer.getMeasuredWidth()) / 2, Math.round(DOTS_CY * kk) - dotsLayer.getMeasuredHeight() / 2);
     }
 
@@ -1003,12 +1003,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         nightPair = false;
     }
 
-    /** What the frosted glass shows (drawer, toasts): the blurred photo, darkened at night. */
+    /**
+     * What the frosted glass shows (shelf, buttons, drawer): the background as it is on screen, lightened by day and
+     * darkened at night. (The raw blurred photo by day put the poster's colors on the glass over a pale background.)
+     */
     private int[] frostOf(Backdrop b) {
-        if (b.nightFrost == null || night <= 0.001f) return b.frost;
+        int[] day = b.light != null ? b.light : b.frost;
+        if (b.nightFrost == null || night <= 0.001f) return day;
         if (night >= 0.999f) return b.nightFrost;
-        if (b != bgTo) return night < 0.5f ? b.frost : b.nightFrost;
-        for (int i = 0; i < frostNight.length; i++) frostNight[i] = mix(b.frost[i], b.nightFrost[i], night);
+        if (b != bgTo) return night < 0.5f ? day : b.nightFrost;
+        for (int i = 0; i < frostNight.length; i++) frostNight[i] = mix(day[i], b.nightFrost[i], night);
         return frostNight;
     }
 
@@ -2192,8 +2196,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawSheet(Canvas c) {
-        c.drawColor(0xA8000000);
+        // A veil over the home screen: light by day, dark at night (it was always dark).
+        c.drawColor(tone(0xD1EEEEF1, 0xA8000000));
         float shift = scroll.value * GRID_ROW * k;
+        sheetTitle.setColor(tone(L_INK, 0xFFFFFFFF));
         c.drawText(Ui.tr("Todos os Apps", "All Apps"), w / 2f, 124 * k - shift, sheetTitle);
         int n = others.size();
         if (gridLabels == null || gridLabels.length != n) {
@@ -2214,7 +2220,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             float f = gridFocus[i].value;
             drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, f, 0.08f);
             if (sheetOpen && i == gridIndex) focusedCell.set(cell);
-            gridLabel.setColor(blend(0x99FFFFFF, 0xFFFFFFFF, Ui.clamp(f)));
+            gridLabel.setColor(blend(tone(0x991C1C1E, 0x99FFFFFF), tone(L_INK, 0xFFFFFFFF), Ui.clamp(f)));
             c.drawText(gridLabels[i], gridCell.centerX(), gridCell.bottom + (40 + 6 * f) * k, gridLabel);
         }
     }
@@ -2271,6 +2277,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private List<String> wallIds = new ArrayList<>();
     private int wallIndex;
     private StaticLayout wallName, wallHint;
+    /**
+     * Messages and the wallpaper picker sit between the header's date and the top buttons (centered on the screen they
+     * covered the date).
+     */
+    private static final float TOAST_CX = 1165;
 
     private void startWallpaperPicker() {
         if (drawerOpen) {   // opened from the drawer's Shortcuts: the drawer goes down so the whole screen previews
@@ -2413,22 +2424,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return wallNamePaint;
     }
 
-    /** At the top center: ‹ name › on smoked glass, with the position and what OK and Back do below. */
+    /** At the top, beside the header: ‹ name › on glass, with the position and what OK and Back do below. */
     private void drawWallpaperPicker(Canvas c) {
         if (wallName == null) return;
         float padX = 44 * k, padY = 20 * k, gap = 8 * k, chev = 30 * k;
         float tw = 640 * k, th = wallName.getHeight() + gap + wallHint.getHeight();
         float top = 48 * k;
-        tmp.set((w - tw) / 2f - padX, top, (w + tw) / 2f + padX, top + th + 2 * padY);
-        scene.glass(c, tmp, 36 * k, SMOKE, 0.55f, 0, 0, 0.02f, 1);
+        float cx = TOAST_CX * k;
+        tmp.set(cx - tw / 2f - padX, top, cx + tw / 2f + padX, top + th + 2 * padY);
+        scene.glass(c, tmp, 36 * k, tone(0xFFFFFFFF, SMOKE), tone(0.6f, 0.55f), 0, 0, 0.02f, 1);
+        int ink = tone(L_INK, 0xFFFFFFFF);
+        wallNamePaint().setColor(ink);
+        toastPaint.setColor(tone(L_DIM, 0xF2FFFFFF));
         float cy = tmp.top + padY + wallName.getHeight() / 2f;
-        Symbols.draw(getContext(), c, "chevron_right", tmp.right - padX / 2 - 6 * k, cy, chev, 0xD9FFFFFF);
+        Symbols.draw(getContext(), c, "chevron_right", tmp.right - padX / 2 - 6 * k, cy, chev, Ui.alpha(ink, 0.85f));
         c.save();
         c.rotate(180, tmp.left + padX / 2 + 6 * k, cy);
-        Symbols.draw(getContext(), c, "chevron_right", tmp.left + padX / 2 + 6 * k, cy, chev, 0xD9FFFFFF);
+        Symbols.draw(getContext(), c, "chevron_right", tmp.left + padX / 2 + 6 * k, cy, chev, Ui.alpha(ink, 0.85f));
         c.restore();
         c.save();
-        c.translate((w - tw) / 2f, tmp.top + padY);
+        c.translate(cx - tw / 2f, tmp.top + padY);
         wallName.draw(c);
         c.translate(0, wallName.getHeight() + gap);
         wallHint.draw(c);
@@ -2475,17 +2490,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float padX = 28 * k, padY = 18 * k, icon = 26 * k, iconW = Symbols.width(getContext(), "bell", icon);
         float tw = toast.getWidth() + iconW + 16 * k, th = toast.getHeight();
         float toastTop = 64 * k - (1 - a) * 16 * k;
-        tmp.set((w - tw) / 2f - padX, toastTop, (w + tw) / 2f + padX, toastTop + th + 2 * padY);
+        float cx = TOAST_CX * k;
+        tmp.set(cx - tw / 2f - padX, toastTop, cx + tw / 2f + padX, toastTop + th + 2 * padY);
         int save = c.saveLayerAlpha(tmp.left - 4, tmp.top - 4, tmp.right + 4, tmp.bottom + 4, Math.round(255 * a));
-        scene.glass(c, tmp, Math.min(tmp.height() / 2, 32 * k), SMOKE, 0.55f, 0, 0, 0.02f, 1);
-        Symbols.draw(getContext(), c, "bell", tmp.left + padX + iconW / 2, tmp.centerY(), icon, 0xEBFFFFFF);
+        // Glass and text like the top buttons: white by day, smoked at night.
+        scene.glass(c, tmp, Math.min(tmp.height() / 2, 32 * k), tone(0xFFFFFFFF, SMOKE), tone(0.6f, 0.55f), 0, 0, 0.02f, 1);
+        toastPaint.setColor(tone(L_INK, 0xF2FFFFFF));
+        Symbols.draw(getContext(), c, "bell", tmp.left + padX + iconW / 2, tmp.centerY(), icon, tone(L_INK, 0xEBFFFFFF));
         c.translate(tmp.left + padX + iconW + 16 * k, tmp.top + padY);
         toast.draw(c);
         c.restoreToCount(save);
     }
 
     private StaticLayout layout(String text) {
-        int max = Math.round(720 * k);
+        int max = Math.round(640 * k);
         int width = (int) Math.min(max, Math.ceil(Layout.getDesiredWidth(text, toastPaint)));
         return StaticLayout.Builder.obtain(text, 0, text.length(), toastPaint, Math.max(1, width))
                 .setMaxLines(2)

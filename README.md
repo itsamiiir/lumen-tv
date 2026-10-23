@@ -149,7 +149,7 @@ map is in [CLAUDE.md](CLAUDE.md#the-code).
 ## Privacy
 
 No accounts of ours, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with your coordinates), Watchmode
-and Stremio only when you set their keys, and Binance only when `show_crypto=true`. Your settings stay on your
+and Stremio only when you set their keys. Your settings stay on your
 computer and your TV.
 
 ## Credits

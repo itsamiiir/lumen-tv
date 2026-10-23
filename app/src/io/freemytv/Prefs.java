@@ -130,7 +130,8 @@ final class Prefs {
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 
-    static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
+    /** Lumen shows no prices: the quotes widget and its coins are off (and out of Home Settings). */
+    static boolean quotes() { return false; }
     static void setQuotes(boolean on) { put("quotes", on); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }

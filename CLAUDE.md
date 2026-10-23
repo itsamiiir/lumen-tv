@@ -29,7 +29,8 @@ before you do it, and let them do the taps on the TV.
    - Linux: OpenJDK 17, Android's command-line tools and adb from the package manager, then the same `sdkmanager` line.
    - Windows: Git Bash (what Claude Code runs there; `build.sh` handles it) or WSL, then as on Linux.
 3. **Settings:** run `./build.sh` once; it creates `config.properties`. Fill in `latitude` and `longitude` (decimal
-   degrees) and `city` for their city, `tmdb_region` (two-letter country), `show_crypto`, `currency` and `temperature` to match.
+   degrees) and `city` for their city, `tmdb_region` (two-letter country) and `temperature` to match. Lumen has no
+   prices: leave `show_crypto` and `currency` as they are (the quotes widget is removed on Android).
    Lumen's own: `tmdb_origin` (their country again, e.g. `IN`, to mix its popular titles with worldwide hits; empty
    for worldwide only) and `family_friendly` (`true` leaves out sexual content). Ask if unsure.
 4. **The TMDB key is theirs and secret.** Ask them to create one (free: themoviedb.org → Settings → API) and paste it
