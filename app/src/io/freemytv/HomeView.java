@@ -58,7 +58,8 @@ import java.util.function.Consumer;
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener,
+        Continue.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -79,6 +80,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float CAPSULE_TOP = 46, CAPSULE_H = 68, BUTTON = 56;
     // Bottom drawer (measured with it open; everything moves up by SHIFT).
     private static final float SHIFT = 560, ROW_TITLE = 518, ROW_TOP = 540, ROW_H = 126, CARDS_TOP = 708, CARDS_H = 300;
+    /**
+     * Continue Watching, between Shortcuts and the weather: 16:9 cards, five across. With it, the weather sits CW_ROOM
+     * lower, and the page scrolls up CW_SCROLL while the focus is on the row.
+     */
+    private static final float CW_TITLE = 726, CW_TOP = 748, CW_W = 320, CW_H = 180, CW_GAP = 40, CW_ROOM = 260, CW_SCROLL = 270;
+    private static final int Z_CONT = 6;
     // "All Apps" sheet.
     private static final int COLUMNS = 5, VISIBLE_ROWS = 3;
     private static final float GRID_W = 300, GRID_H = 169, GRID_GAP = 40, GRID_ROW = 239, GRID_TOP = 196, GRID_RADIUS = 22;
@@ -111,6 +118,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
+    private final Continue cont;
+    private List<Continue.Entry> cwItems = new ArrayList<>();
+    private final Spring[] cwFocus = new Spring[10];
+    private final RectF[] cwRects = new RectF[10];
+    private final RectF cwCell = new RectF();
+    private final Spring cwScroll = new Spring(0.3f, 0.9f, 0), cwSlide = new Spring(0.3f, 0.88f, 0);
+    private int cwIndex;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -270,6 +284,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean okDown, backDown;
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
+    private Paint cwTitle, cwSub;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
     private Paint pricePaint, changePaint, sheetTitle;
     private TextPaint titlePaint, gridLabel, toastPaint;
@@ -384,6 +399,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        cont = Continue.get(a);
+        for (int i = 0; i < cwFocus.length; i++) {
+            cwFocus[i] = new Spring(0.28f, 0.85f, 0);
+            cwRects[i] = new RectF();
+        }
+        cwItems = cont.items();
         click = new Click(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
@@ -439,6 +460,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastStep = 0;
         data.addListener(this);
         recs.addListener(this);
+        cont.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
@@ -471,6 +493,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(autoTick);
         data.removeListener(this);
         recs.removeListener(this);
+        cont.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -524,6 +547,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         platter.invalidate();
     }
 
+    @Override public void onContinue() {
+        boolean was = cwItems.isEmpty();
+        cwItems = cont.items();
+        cwIndex = Math.min(cwIndex, Math.max(0, cwItems.size() - 1));
+        if (cwItems.isEmpty() && zone == Z_CONT) zone = Z_DRAWER;
+        if (was != cwItems.isEmpty()) layoutDrawer();
+        drawerDirty = true;
+        retarget(false);
+        wake();
+    }
+
     @Override public void onRecs() {
         wake();
         updatePicks();
@@ -545,7 +579,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // cheaper for the GPU to composite on every frame of the drawer animation.
         measure(platter, width, Math.round(320 * kk));
         measure(tiles, width, Math.round(270 * kk));
-        measure(drawerLayer, width, Math.round(600 * kk));
+        measure(drawerLayer, width, Math.round(840 * kk));   // down to the weather below Continue Watching
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
         measure(dotsLayer, Math.round(1000 * kk), Math.round(40 * kk));
@@ -652,6 +686,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         staleQuote.setTextAlign(Paint.Align.RIGHT);
         rowTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         drawerLabel = Ui.text(Ui.medium, 23 * k, 0xEBFFFFFF);
+        cwTitle = Ui.text(Ui.semibold, 23 * k, 0xFFFFFFFF);
+        cwSub = Ui.text(Ui.medium, 19 * k, 0xCCFFFFFF);
         drawerLabel.setTextAlign(Paint.Align.CENTER);
         cardTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         cardText = Ui.text(Ui.medium, 29 * k, 0xF2FFFFFF);
@@ -706,7 +742,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
-        boolean drawerMoving = drawer.step(dt);
+        boolean drawerMoving = drawer.step(dt) | cwScroll.step(dt);
+        drawerItemsMoving |= step(cwFocus, dt) | cwSlide.step(dt);
         boolean sheetMoving = sheet.step(dt);
         boolean toastFading = tickToast(up);
         boolean heroFading = tickHeroFade(up);
@@ -770,14 +807,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
         float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
         float shift = SHIFT * k;
-        float lift = -d * shift;
+        float lift = -d * shift - cwScroll.value * CW_SCROLL * k;   // Continue Watching focused: the page moves up
         show(heroLayer, top, lift);
         show(dotsLayer, top, lift);
         show(status, top, lift);
         show(platter, home, lift);
         show(tiles, home, lift);
         float da = home * smoothstep(0.1f, 0.6f, dc);
-        drawerLayer.setTranslationY((1 - d) * shift);
+        drawerLayer.setTranslationY((1 - d) * shift - cwScroll.value * CW_SCROLL * k);
         drawerLayer.setAlpha(da);
         drawerLayer.setVisibility(da > 0.002f ? VISIBLE : INVISIBLE);
         sheetLayer.setVisibility(s > 0.001f || sheetOpen ? VISIBLE : INVISIBLE);
@@ -1645,7 +1682,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             x += tw + gap;
         }
-        float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
+        for (int i = 0; i < cwRects.length; i++) {
+            float cx = left + i * (CW_W + CW_GAP) * k;
+            cwRects[i].set(cx, CW_TOP * k, cx + CW_W * k, (CW_TOP + CW_H) * k);
+        }
+        float cardsTop = (CARDS_TOP + (cwItems.isEmpty() ? 0 : CW_ROOM)) * k, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
         // A card that is off gives its room to the other one.
         weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
@@ -1657,6 +1698,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (drawerItems.isEmpty()) return;
         drawerOpen = true;
         drawer.target = 1;
+        cont.refresh();   // Stremio's progress, when it's older than 5 minutes
         click.drawer(true);
         zone = Z_DRAWER;
         drawerIndex = shelf.isEmpty() ? 0 : nearest(drawerRects, tileRects[shelfIndex].centerX());
@@ -1713,8 +1755,70 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
+        if (!cwItems.isEmpty()) drawContinue(c);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+    }
+
+    /** Continue Watching: the image with its fade, the title and what's next (or the app), Stremio's progress. */
+    private void drawContinue(Canvas c) {
+        float slide = cwSlide.value * k;
+        c.drawText(Ui.tr("Continuar assistindo", "Continue Watching"), cwRects[0].left + 4 * k, CW_TITLE * k, rowTitle);
+        int n = Math.min(cwItems.size(), cwRects.length), top = -1;
+        for (int i = 0; i < n; i++) if (cwFocus[i].value > 0.02f && (top < 0 || cwFocus[i].value > cwFocus[top].value)) top = i;
+        for (int i = 0; i < n; i++) if (i != top) drawContinueCard(c, i, slide);
+        if (top >= 0) drawContinueCard(c, top, slide);
+    }
+
+    private void drawContinueCard(Canvas c, int i, float slide) {
+        RectF base = cwRects[i];
+        float left = base.left - slide;
+        if (left > w || left + base.width() < 0) return;
+        Continue.Entry e = cwItems.get(i);
+        float f = Ui.clamp(cwFocus[i].value), s = 1 + 0.08f * f;
+        float cx = left + base.width() / 2, cy = base.centerY();
+        cwCell.set(cx - base.width() * s / 2, cy - base.height() * s / 2, cx + base.width() * s / 2, cy + base.height() * s / 2);
+        float r = 16 * k * s;
+        if (f > 0.01f) {
+            tmp.set(cwCell);
+            tmp.offset(0, 12 * k * f);
+            shadow.setColor(Ui.alpha(0xFF000000, 0.45f * f));
+            shadows.drawCached(c, tmp, r, SHADOW_BLUR * k, shadow);
+        }
+        Bitmap img = cont.image(e);
+        if (img != null) {
+            cropImage(c, img, cwCell, r);
+        } else {
+            drawerGlass(c, cwCell, r, 0.7f, 0x14000000, 6 * k);
+        }
+        float pad = 16 * k * s, bottom = cwCell.bottom - pad;
+        if (e.progress >= 0) {
+            // The progress line, like Apple TV's: white over a see-through track.
+            float y = cwCell.bottom - 10 * k * s, x0 = cwCell.left + pad, x1 = cwCell.right - pad, th = 4 * k * s;
+            fill.setShader(null);
+            fill.setColor(0x59FFFFFF);
+            tmp.set(x0, y - th, x1, y);
+            c.drawRoundRect(tmp, th / 2, th / 2, fill);
+            fill.setColor(0xFFFFFFFF);
+            tmp.set(x0, y - th, x0 + (x1 - x0) * Math.max(0.03f, e.progress), y);
+            c.drawRoundRect(tmp, th / 2, th / 2, fill);
+            bottom = y - th - 10 * k * s;
+        }
+        float room = cwCell.width() - 2 * pad;
+        cwSub.setTextSize(19 * k * s);
+        cwTitle.setTextSize(23 * k * s);
+        fitPaint.set(cwSub);
+        String sub = TextUtils.ellipsize(e.sub == null ? "" : e.sub, fitPaint, room, TextUtils.TruncateAt.END).toString();
+        c.drawText(sub, cwCell.left + pad, bottom, cwSub);
+        fitPaint.set(cwTitle);
+        String title = TextUtils.ellipsize(e.title == null ? "" : e.title, fitPaint, room, TextUtils.TruncateAt.END).toString();
+        c.drawText(title, cwCell.left + pad, bottom - Ui.cap(cwSub) - 9 * k * s, cwTitle);
+        if (f > 0.01f) {
+            rim.setShader(null);
+            rim.setColor(Ui.alpha(0xFFFFFFFF, 0.85f * f));
+            rim.setStrokeWidth(3 * k);
+            c.drawRoundRect(cwCell, r, r, rim);
+        }
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1907,6 +2011,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
         boolean drawerChanged = aim(drawerFocus, !sheetOpen && zone == Z_DRAWER ? drawerIndex : -1, snap);
+        drawerChanged |= aim(cwFocus, !sheetOpen && zone == Z_CONT ? cwIndex : -1, snap);
+        cwScroll.target = drawerOpen && zone == Z_CONT ? 1 : 0;
+        cwSlide.target = Math.max(0, cwIndex - 4) * (CW_W + CW_GAP);   // the focused card stays on screen
+        if (snap) {
+            cwScroll.snap(cwScroll.target);
+            cwSlide.snap(cwSlide.target);
+        }
         boolean heroChanged = heroFocus.target != (!sheetOpen && zone == Z_HERO ? 1 : 0);
         heroFocus.target = !sheetOpen && zone == Z_HERO ? 1 : 0;
         if (snap) heroFocus.snap(heroFocus.target);
@@ -2389,7 +2500,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void back() {
         if (sheetOpen) {
             closeSheet();
-        } else if (zone == Z_DRAWER || zone == WIDGETS) {
+        } else if (zone == Z_DRAWER || zone == WIDGETS || zone == Z_CONT) {
             closeDrawer();
             retarget(false);
         } else if (zone != Z_SHELF) {
@@ -2454,6 +2565,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     return;
                 }
                 break;
+            case Z_CONT:
+                if (dx != 0) {
+                    int next = Math.max(0, Math.min(cwItems.size() - 1, cwIndex + dx));
+                    if (next == cwIndex) return;
+                    cwIndex = next;
+                } else if (dy < 0) {
+                    zone = Z_DRAWER;
+                    float x = cwRects[cwIndex].centerX() - cwSlide.target * k;
+                    drawerIndex = nearest(drawerRects, x);
+                } else if (talkBack() && !widgets().isEmpty()) {
+                    zone = WIDGETS;
+                    widgetIndex = widgets().get(0);
+                } else {
+                    return;
+                }
+                break;
             case WIDGETS: {
                 List<Integer> on = widgets();
                 int at = on.indexOf(widgetIndex);
@@ -2473,6 +2600,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     drawerIndex = next;
                 } else if (dy < 0) {
                     closeDrawer();
+                } else if (!cwItems.isEmpty()) {
+                    // Down to Continue Watching: the card below, among the ones on screen.
+                    zone = Z_CONT;
+                    float x = drawerRects[drawerIndex].centerX() + cwSlide.target * k;
+                    cwIndex = Math.min(cwItems.size() - 1, nearest(java.util.Arrays.copyOf(cwRects, cwItems.size()), x));
                 } else if (talkBack() && !widgets().isEmpty()) {
                     // Only with TalkBack: the widgets are there to be read, and this is how it gets to them.
                     zone = WIDGETS;
@@ -2537,6 +2669,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = heroButton;
+            cont.opened(p);
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
             it = statusItems.get(statusIndex);
@@ -2545,6 +2678,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (drawerItems.isEmpty()) return;
             it = drawerItems.get(drawerIndex);
             r = drawerRects[drawerIndex];
+        } else if (zone == Z_CONT) {
+            if (cwIndex >= cwItems.size()) return;
+            Continue.Entry e = cwItems.get(cwIndex);
+            it = HomeApps.app(e.pkg, e.app, e.link);
+            r = cwRects[cwIndex];
+            cont.reopened(e);
         } else if (zone == Z_TOP) {
             if (topIndex < NT) {
                 selectTab(topIndex);
@@ -2557,6 +2696,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = cardRects[focusSlot];
+            cont.opened(p);
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
