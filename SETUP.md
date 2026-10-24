@@ -104,6 +104,9 @@ When you're done, tell Claude **"done"**.
 Claude builds the app (a minute or two) and installs it on the TV. You'll see a new app called **Free My TV** in
 your TV's apps. Nothing about your home screen has changed yet.
 
+> **Install seems stuck?** Look at the TV. On Android 14, Google Play Protect may hold it with *"Risky app blocked"*
+> ("built for an older version of Android"). Choose **More details → Install anyway**. Updates don't ask again.
+
 ## 7. Switch the TV over
 
 On the TV, with the remote:
@@ -111,7 +114,7 @@ On the TV, with the remote:
 1. Open the **Free My TV** app.
 2. Choose **Home Screen → Free My TV**.
 3. The TV asks **"Allow USB debugging?"** once more, this time for the app itself: tick **Always allow** and choose
-   **Allow**.
+   **Allow**. (On Android 8 to 10, Claude disconnects the computer first, so the answer goes to the app.)
 
 It turns off the stock home screen and a few promo apps (never uninstalling anything) and shows the new home screen.
 
@@ -131,6 +134,12 @@ It turns off the stock home screen and a few promo apps (never uninstalling anyt
 - **Don't want suggestions?** *Home Settings → Suggestions → Off* shows a big clock with the weather instead.
 - **Shelf apps and order:** *Free My TV → Shelf*, or **hold OK** on a shelf app to move it.
 - **Remove something from Continue Watching:** hold OK on its card, then OK again.
+- **Your own photos in the screensaver:** send them from your computer (ask Claude: *"send these photos to my
+  TV"*) or plug in a USB stick and choose *Home Settings → My Photos → Import from a USB stick*.
+  [Details →](README.md#your-own-photos)
+- **More than 8 apps on the shelf:** add them in *Free My TV → Shelf*; past ten the shelf scrolls.
+- **Voice search for films and shows** doesn't work while Lumen is the home screen (Google TV shows those results
+  in its own home app). Search inside the app instead. [Why →](README.md#voice-search)
 - **Continue Watching shows** what you open from Lumen's suggestions and your Stremio progress, not movies you pick
   inside JioHotstar, Netflix or Prime Video (Android keeps those for the TV's built-in home screen).
   [Details →](README.md#what-continue-watching-can-and-cant-show)

@@ -220,6 +220,14 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   is, never repainted), and prepared images saved in `cache/recs-ready/` (`Backdrop.save`/`load`; bump `Recs.READY`
   when what they hold changes). Page 2 (`HomeView.layoutDrawer`) is centered as one block; the shelf's smoked glass is
   its own layer (`smokeLayer`) that fades by opacity, so no glass is redrawn during the slide.
+- My Photos (`Photos`, `PhotoInbox`, `tools/photos.py`): photos sent by adb into the app's external `files/photos`
+  (or through `PhotoInbox` where adb can't reach it, Android 11 and Fire OS 8), or copied from a USB stick
+  (`Photos.copyFromSticks`, after READ_EXTERNAL_STORAGE / READ_MEDIA_IMAGES) into the private inbox; `importInbox`
+  imports both the same way. The screensaver order is wallpaper, then photos, then the picks' photos. To send photos
+  for someone: `python3 tools/photos.py <IP> <files or folders>`.
+- The shelf scrolls past `HomeApps.shelfVisible` (10; 8 and no scrolling on low-RAM TVs): `HomeView.revealShelf`
+  keeps the focused app in view, All Apps stays at the end. Images drawn rounded carry their own shader
+  (`Backdrop.shader`, `HomeApps.Item.tileShader`, `Continue.shader`); never cache shaders by bitmap in a map.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 - LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017; only transform and opacity animate. `web/tv.js` is the

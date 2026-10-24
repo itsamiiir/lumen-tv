@@ -137,6 +137,34 @@ final class Ui {
         return Math.max(0, Math.min(1, v));
     }
 
+    /** Largest 2w×2h step `downscale` takes (about 10 MB). */
+    private static final long SMOOTH_STEP_PIXELS = 2_600_000;
+
+    /**
+     * Filtered down to w × h without jagged edges: bilinear filtering reads only 2×2 pixels, so no step shrinks more
+     * than 2×. Halves while it can; when over 1.5× is left, goes up to 2w × 2h and halves exactly, else one last step.
+     * Never recycles src; may return it (when it already has the size). From Free My TV 1.1.
+     */
+    static android.graphics.Bitmap downscale(android.graphics.Bitmap src, int w, int h) {
+        w = Math.max(1, w);
+        h = Math.max(1, h);
+        android.graphics.Bitmap b = src;
+        while (b.getWidth() / 2 >= w && b.getHeight() / 2 >= h) {
+            android.graphics.Bitmap half = android.graphics.Bitmap.createScaledBitmap(b, b.getWidth() / 2, b.getHeight() / 2, true);
+            if (b != src) b.recycle();
+            b = half;
+        }
+        if ((2 * b.getWidth() > 3 * w || 2 * b.getHeight() > 3 * h) && 4L * w * h <= SMOOTH_STEP_PIXELS) {
+            android.graphics.Bitmap twice = android.graphics.Bitmap.createScaledBitmap(b, 2 * w, 2 * h, true);
+            if (b != src) b.recycle();
+            b = twice;
+        }
+        if (b.getWidth() == w && b.getHeight() == h) return b;
+        android.graphics.Bitmap out = android.graphics.Bitmap.createScaledBitmap(b, w, h, true);
+        if (b != src && b != out) b.recycle();
+        return out;
+    }
+
     static String tr(String pt, String english) {
         return de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
     }

@@ -2,6 +2,7 @@ package io.freemytv;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
@@ -289,6 +290,25 @@ final class Backdrop {
         for (int i = 0; inside != null && i < inside.length; i++) deleteAll(inside[i]);
         //noinspection ResultOfMethodCallIgnored
         f.delete();
+    }
+
+    private BitmapShader wideShader, tallShader;
+    private Bitmap tallShaderOf;
+
+    /**
+     * The shader that draws `image` (this backdrop's wide or tall card) into a rounded card. It lives here, with its
+     * image: kept in a map in HomeView, a shader held its bitmap, so no card ever left memory (from Free My TV 1.1).
+     */
+    BitmapShader shader(Bitmap image) {
+        if (image == wide) {
+            if (wideShader == null) wideShader = new BitmapShader(wide, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            return wideShader;
+        }
+        if (tallShader == null || tallShaderOf != tall) {   // the poster can replace the tall card
+            tallShader = new BitmapShader(tall, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            tallShaderOf = tall;
+        }
+        return tallShader;
     }
 
     /** Takes this logo if it reads well on the card (bright, see-through); returns whether it did. */

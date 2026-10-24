@@ -50,16 +50,43 @@ public class SettingsActivity extends Activity {
     private SettingsView view;
     private DreamView preview;   // "Screensaver": the screensaver right here, without changing the system setting
 
+    /** My Photos: the answer to "read the photos on the USB stick?". */
+    static final int PHOTOS_PERMISSION = 7;
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (openFireHome(getIntent())) return;
         Watchdog.install(this);
         Ui.init(this);
         view = new SettingsView(this);
         setContentView(view);
     }
 
+    /**
+     * Fire TV: Amazon keeps the Home button, so the app's icon opens the home screen (FireHomeActivity) directly; the
+     * gear on the home screen opens these settings (no launcher category). From Free My TV 1.1.
+     */
+    private boolean openFireHome(Intent intent) {
+        if (!HomeMode.AMAZON || intent == null || !(intent.hasCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                || intent.hasCategory(Intent.CATEGORY_LAUNCHER)) || intent.getBooleanExtra("screensaver", false)) {
+            return false;
+        }
+        startActivity(new Intent(this, FireHomeActivity.class));
+        finish();
+        return true;
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (code == PHOTOS_PERMISSION && view != null && results.length > 0
+                && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            view.importFromStick();
+        }
+    }
+
     @Override protected void onResume() {
         super.onResume();
+        if (view == null) return;
         view.resume();
         // From ADB: am start -n io.freemytv/.SettingsActivity --ez screensaver true (straight to the preview).
         if (preview == null && getIntent().getBooleanExtra("screensaver", false)) {
@@ -72,11 +99,13 @@ public class SettingsActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (view == null) return;
+        openFireHome(intent);
     }
 
     @Override protected void onPause() {
         closePreview();     // before pausing the view: closing the preview resumes it (view.resume)
-        view.pause();
+        if (view != null) view.pause();
         super.onPause();
     }
 
@@ -230,7 +259,8 @@ public class SettingsActivity extends Activity {
                 case REMOTE_KEYS: {
                     boolean keys = screen == REMOTE_KEYS;
                     String[] labels = keys ? keyLabels() : settingLabels(), values = keys ? keyValues() : settingValues();
-                    return row < labels.length ? labels[row] + ", " + values[row] : "";
+                    int at = keys ? row : pickScroll + row;
+                    return at < labels.length ? labels[at] + ", " + values[at] : "";
                 }
                 case PICKER: {
                     int at = pickScroll + row;
@@ -271,6 +301,7 @@ public class SettingsActivity extends Activity {
             if (running) return;
             running = true;
             startedAt = SystemClock.uptimeMillis();
+            Photos.importInbox(getContext(), this::invalidate);   // photos a computer just sent
             lastNanos = 0;
             handler.post(poll);
             Choreographer.getInstance().postFrameCallback(this);
@@ -339,7 +370,7 @@ public class SettingsActivity extends Activity {
             switch (screen) {
                 case MAIN: return MAIN_ROWS.length;
                 case HOME_CHOICE: return 2;
-                case HOME_SETTINGS: return settingLabels().length;
+                case HOME_SETTINGS: return Math.min(SETTINGS_VISIBLE, settingLabels().length);
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
                 default: return Prefs.KEYS.length;
@@ -556,6 +587,7 @@ public class SettingsActivity extends Activity {
                         if (backDown && !e.isCanceled()) {
                             if (screen == PICKER && pickFor == PICK_CITY) {
                                 focus = CITY_ROW;
+                                pickScroll = 0;
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
@@ -579,7 +611,11 @@ public class SettingsActivity extends Activity {
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, suggestions, wallpaper, sounds, sound style, weather, city. */
-        private static final int PICKS_ROW = 3, CITY_ROW = 8;
+        private static final int PICKS_ROW = 3, PHOTOS_ROW = 5, CITY_ROW = 9;
+        /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
+        private static final int SETTINGS_VISIBLE = 10;
+        /** My Photos: what an import from a USB stick is doing ("" when nothing). */
+        private String photosStatus = "";
 
         private String[] settingLabels() {
             List<String> l = new ArrayList<>();
@@ -588,6 +624,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Tema", "Theme"));
             l.add(Ui.tr("Sugestões", "Suggestions"));
             l.add(Ui.tr("Papel de parede", "Wallpaper"));
+            l.add(Ui.tr("My Photos"));
             l.add(Ui.tr("Sons de navegação", "Navigation sounds"));
             l.add(Ui.tr("Estilo do som", "Sound style"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
@@ -608,9 +645,12 @@ public class SettingsActivity extends Activity {
             // Without a TMDB key there are no suggestions to turn on.
             v[PICKS_ROW] = Recs.hasKey(getContext()) ? onOff(Prefs.picks()) : "—";
             v[4] = Wallpapers.label(Prefs.wallpaper());
-            v[5] = onOff(Prefs.sounds());
-            v[6] = Click.label(Prefs.soundStyle());
-            v[7] = onOff(Prefs.weather());
+            int photos = Photos.files(getContext()).size();
+            v[PHOTOS_ROW] = !photosStatus.isEmpty() ? photosStatus : photos == 0 ? Ui.tr("None")
+                    : Prefs.photos() ? Ui.trf(photos == 1 ? "{n} photo" : "{n} photos", "n", photos) : Ui.tr("Off");
+            v[6] = onOff(Prefs.sounds());
+            v[7] = Click.label(Prefs.soundStyle());
+            v[8] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             return v;
         }
@@ -666,7 +706,7 @@ public class SettingsActivity extends Activity {
                 Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
                 return;
             }
-            switch (focus) {
+            switch (pickScroll + focus) {
                 case 0: {
                     int at = java.util.Arrays.asList(LANGUAGES).indexOf(Prefs.language());
                     Prefs.setLanguage(LANGUAGES[(at + dir + LANGUAGES.length) % LANGUAGES.length]);
@@ -692,14 +732,18 @@ public class SettingsActivity extends Activity {
                     Prefs.setWallpaper(ids.get((at + dir + ids.size()) % ids.size()));
                     break;
                 }
-                case 5: Prefs.setSounds(!Prefs.sounds()); break;
-                case 6: {
+                case PHOTOS_ROW:
+                    if (Photos.files(getContext()).isEmpty()) return;
+                    Prefs.setPhotos(!Prefs.photos());
+                    break;
+                case 6: Prefs.setSounds(!Prefs.sounds()); break;
+                case 7: {
                     String[] st = Click.STYLES;
                     int at = java.util.Arrays.asList(st).indexOf(Prefs.soundStyle());
                     Prefs.setSoundStyle(st[(at + dir + st.length) % st.length]);
                     break;
                 }
-                case 7: Prefs.setWeather(!Prefs.weather()); break;
+                case 8: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
                 default: return;
             }
@@ -758,11 +802,71 @@ public class SettingsActivity extends Activity {
         }
 
         private boolean scrolling() {
-            return screen == PICKER || screen == SHELF_EDIT;
+            return screen == PICKER || screen == SHELF_EDIT || screen == HOME_SETTINGS;
         }
 
         private int listSize() {
-            return screen == SHELF_EDIT ? shelfRows.size() : pickLabels.size();
+            return screen == SHELF_EDIT ? shelfRows.size() : screen == HOME_SETTINGS ? settingLabels().length : pickLabels.size();
+        }
+
+        // MARK: - My Photos (sent from a computer: tools/photos.py; or from a USB stick)
+
+        /** OK on My Photos: import from a USB stick, or remove them all. */
+        private void askPhotos() {
+            int n = Photos.files(getContext()).size();
+            List<String> options = new ArrayList<>();
+            options.add(Ui.tr("Import from a USB stick"));
+            if (n > 0) options.add(Ui.trf(n == 1 ? "Remove {n} photo" : "Remove all {n} photos", "n", n));
+            new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle(Ui.tr("My Photos"))
+                    .setItems(options.toArray(new String[0]), (d, which) -> {
+                        if (which == 0) importFromStick();
+                        else confirmRemovePhotos(n);
+                    })
+                    .setNegativeButton(Ui.tr("Cancel"), null)
+                    .show();
+        }
+
+        private void confirmRemovePhotos(int n) {
+            AlertDialog dialog = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle(Ui.trf(n == 1 ? "Remove {n} photo?" : "Remove {n} photos?", "n", n))
+                    .setMessage(Ui.tr("They leave the TV; the ones on your computer or stick stay."))
+                    .setPositiveButton(Ui.tr("Remove"), (d, w) -> {
+                        Photos.removeAll(getContext());
+                        invalidate();
+                    })
+                    .setNegativeButton(Ui.tr("Cancel"), null)
+                    .create();
+            dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus());   // Cancel first
+            dialog.show();
+        }
+
+        /** Asks once to read the stick, then copies its photos in and imports them like a computer's. */
+        void importFromStick() {
+            if (!Photos.allowed(getContext())) {
+                activity.requestPermissions(new String[] {Photos.PERMISSION}, PHOTOS_PERMISSION);
+                return;
+            }
+            if (!photosStatus.isEmpty()) return;
+            photosStatus = Ui.tr("Looking for photos…");
+            invalidate();
+            Context app = getContext().getApplicationContext();
+            new Thread(() -> {
+                int copied = Photos.copyFromSticks(app);
+                handler.post(() -> {
+                    if (copied == 0) {
+                        photosStatus = Photos.sticks(app).isEmpty() ? Ui.tr("No USB stick found") : Ui.tr("No photos on the stick");
+                        handler.postDelayed(() -> { photosStatus = ""; invalidate(); }, 4000);
+                        invalidate();
+                        return;
+                    }
+                    photosStatus = Ui.trf("Importing {n}…", "n", copied);
+                    invalidate();
+                    Photos.importInbox(app, () -> { photosStatus = ""; invalidate(); });
+                    // importInbox tells only when something came in: clear the status anyway after a while.
+                    handler.postDelayed(() -> { photosStatus = ""; invalidate(); }, 60_000);
+                });
+            }).start();
         }
 
         // MARK: - Shelf editor
@@ -807,7 +911,7 @@ public class SettingsActivity extends Activity {
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (shelfOrder.size() < HomeApps.MAX_SHELF) shelfOrder.add(pkg);
+            else if (shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // past 10 the shelf scrolls
             else return;
             refreshShelfRows(pkg);
         }
@@ -836,13 +940,23 @@ public class SettingsActivity extends Activity {
                 rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(TextUtils.ellipsize(app[1], new TextPaint(rowLabel), 520 * k, TextUtils.TruncateAt.END).toString(), rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(place >= 0 ? "#" + (place + 1) : Ui.tr("Fora", "Off"), rowRect.right - 30 * k, base, rowValue);
+                float right = rowRect.right - 30 * k;
+                if (place >= 0) {
+                    // On the shelf: a check, as in the pickers, after its place.
+                    float cw = Symbols.width(getContext(), "check", 26 * k);
+                    Symbols.draw(getContext(), c, "check", right - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, INK, f));
+                    right -= cw + 16 * k;
+                }
+                c.drawText(place >= 0 ? "#" + (place + 1) : Ui.tr("Fora", "Off"), right, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(Ui.tr("OK põe ou tira da prateleira (até " + HomeApps.MAX_SHELF + "). ← → mudam a ordem.",
-                    "OK adds or removes (up to " + HomeApps.MAX_SHELF + "). ← → change the order.",
-                    "OK pone o quita del estante (hasta " + HomeApps.MAX_SHELF + "). ← → cambian el orden."), LIST_X * k + 30 * k, hy, hint);
+            int max = HomeApps.maxShelf(getContext());
+            if (max != Integer.MAX_VALUE) {
+                c.drawText(Ui.tr("This TV has little memory, so the shelf holds fewer apps."), LIST_X * k + 30 * k, hy + 38 * k, hint);
+            }
+            c.drawText(max == Integer.MAX_VALUE ? Ui.tr("OK adds or removes an app (past 10, the shelf scrolls). ← → change the order.")
+                    : Ui.trf("OK adds or removes (up to {n}). ← → change the order.", "n", max), LIST_X * k + 30 * k, hy, hint);
         }
 
         private void openPicker(int which) {
@@ -893,19 +1007,24 @@ public class SettingsActivity extends Activity {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : Ui.tr("Ajustes do Início", "Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            for (int i = 0; i < labels.length; i++) {
+            int rows = keys ? labels.length : rowCount(), from = keys ? 0 : pickScroll;
+            for (int i = 0; i < rows; i++) {
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
+                c.drawText(labels[from + i], rowRect.left + 30 * k, base, rowLabel);
+                c.drawText(values[from + i], rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
+            float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            // A list longer than the screen says where we are in it, as the app picker does.
+            String where = rows < labels.length ? (from + focus + 1) + " / " + labels.length + "  ·  " : "";
+            c.drawText(where + (!keys && from + focus == PHOTOS_ROW
+                    ? Ui.tr("OK: import from a USB stick or remove them. ← → on or off. From a computer: see the README.")
+                    : Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value.")), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video e Google Play: a própria TV controla esses botões.",
                         "YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
@@ -919,6 +1038,11 @@ public class SettingsActivity extends Activity {
                         : Ui.tr("Botões do controle da TCL: nesta TV funcionam como sempre.",
                         "TCL remote buttons: on this TV they work as always."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }
+        }
+
+        /** The main menu's focused row by id (MAIN_ROWS): with Remote Buttons hidden, row 4 is TV Settings (id 5). */
+        private int mainId() {
+            return focus < MAIN_ROWS.length ? MAIN_ROWS[focus] : -1;
         }
 
         private void activate() {
@@ -937,6 +1061,7 @@ public class SettingsActivity extends Activity {
                 Prefs.setCity(city[1], city[2], city[3]);
                 HomeData.get(c).settingsChanged();
                 focus = CITY_ROW;
+                pickScroll = 0;   // City is on the list's first screen
                 screen = HOME_SETTINGS;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
@@ -949,26 +1074,30 @@ public class SettingsActivity extends Activity {
                 return;
             } else if (screen == REMOTE_KEYS) {
                 openPicker(focus + 1);
-            } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == CITY_ROW) {
                 askCity();
+                return;
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == PHOTOS_ROW) {
+                askPhotos();
                 return;
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);
                 invalidate();
                 return;
-            } else if (focus == 0) {
+            } else if (mainId() == 0) {
                 if (busy()) return;
                 screen = HOME_CHOICE;
                 focus = freeActive() ? 0 : 1;
-            } else if (focus == 1) {
+            } else if (mainId() == 1) {
                 pause();
                 activity.showPreview();
-            } else if (focus == 2) {
+            } else if (mainId() == 2) {
                 screen = HOME_SETTINGS;
                 focus = 0;
-            } else if (focus == 3) {
+                pickScroll = 0;
+            } else if (mainId() == 3) {
                 openShelfEditor();
-            } else if (focus == 4) {
+            } else if (mainId() == 4) {
                 HomeMode.ensureRemoteService(c, 0);   // the buttons work from inside other apps through this service
                 loadApps();
                 screen = REMOTE_KEYS;

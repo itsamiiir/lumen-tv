@@ -68,6 +68,7 @@ final class HomeApps {
         String uri;         // opens this address in the app instead of the app's home (a title's page)
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
+        android.graphics.BitmapShader tileShader;   // draws `tile` rounded; lives and goes with the item
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
         Bitmap logoDark;    // version for a light background (YouTube's white icon), if any
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
@@ -76,7 +77,7 @@ final class HomeApps {
     }
 
     /**
-     * Apps on the home shelf, in this order, when installed (up to MAX_SHELF): key, name, package, brand color (for
+     * Apps on the home shelf, in this order, when installed (the first FEW_APPS): key, name, package, brand color (for
      * its logo on glass) and how to lift the logo from the app's TV art: "tint" = a white logo takes the art's
      * background color (Prime Video, Globoplay); "play" = the white triangle inside the red button stays white
      * (YouTube); empty = the art's colors as they are. Last, a visual size tweak for the logo. Edit freely.
@@ -84,23 +85,48 @@ final class HomeApps {
     private static final String[][] SHELF = {
         {"netflix", "Netflix", "com.netflix.ninja", "E50914", "", "1"},
         {"youtube", "YouTube", "com.google.android.youtube.tv", "FF0033", "play", "1"},
+        {"youtube", "YouTube", "com.amazon.firetv.youtube", "FF0033", "play", "1"},              // Fire TV's builds
         {"prime", "Prime Video", "com.amazon.amazonvideo.livingroom", "1A98FF", "tint", "0.96"},
+        {"prime", "Prime Video", "com.amazon.firebat", "1A98FF", "tint", "0.96"},
+        {"prime", "Prime Video", "com.amazon.avod", "1A98FF", "tint", "0.96"},
         {"disney", "Disney+", "com.disney.disneyplus", "1838C8", "", "1"},
         {"max", "Max", "com.wbd.stream", "6C3BE0", "", "1.32"},
         {"max", "HBO Max", "com.hbo.hbonow", "6C3BE0", "", "1.32"},
         {"appletv", "Apple TV", "com.apple.atve.androidtv.appletv", "B8BCC6", "", "1.1"},
         {"appletv", "Apple TV", "com.apple.atve.sony.appletv", "B8BCC6", "", "1.1"},   // Sony's own build
+        {"appletv", "Apple TV", "com.apple.atve.amazon.appletv", "B8BCC6", "", "1.1"}, // Fire TV's
         {"hulu", "Hulu", "com.hulu.livingroomplus", "1CE783", "", "1"},
+        {"hulu", "Hulu", "com.hulu.plus", "1CE783", "", "1"},
         {"paramount", "Paramount+", "com.cbs.ott", "0064FF", "", "1"},
         {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
+        {"peacock", "Peacock", "com.peacock.peacockfiretv", "6E55DC", "", "1"},
         {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
         {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
         {"stremio", "Stremio", "com.stremio.one", "7B5BF5", "play", "1"},   // the diamond's play triangle kept as a hole
     };
-    static final int MAX_SHELF = 8;
+    /**
+     * Tiles the shelf shows at once, All Apps included (it scrolls for the rest; from Free My TV 1.1). The built-in list
+     * keeps 8 apps, and low-memory TVs hold 8 at most, without scrolling: every app on the shelf keeps its logo in
+     * memory, at two sizes.
+     */
+    private static final int SHELF_VISIBLE = 10, FEW_APPS = 8;
+
+    /** Low memory (TCL's 1 GB models): every MB counts. */
+    static boolean lowRam(Context c) {
+        return c.getSystemService(android.app.ActivityManager.class).isLowRamDevice();
+    }
+
+    static int shelfVisible(Context c) {
+        return lowRam(c) ? FEW_APPS : SHELF_VISIBLE;
+    }
+
+    static int maxShelf(Context c) {
+        return lowRam(c) ? FEW_APPS : Integer.MAX_VALUE;
+    }
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
     static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx",
-            "com.smartdevice.livetv", "com.mediatek.tv.oneworld.tvcenter", "com.vt.tv.tvcenter"};
+            "com.smartdevice.livetv", "com.mediatek.tv.oneworld.tvcenter", "com.vt.tv.tvcenter", "com.amazon.tv.livetv",
+            "com.amazon.mediatek.livetv"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */
     private static final Set<String> HIDDEN = new HashSet<>(java.util.Arrays.asList(
             "com.google.android.play.games",        // Google Play Games
@@ -117,6 +143,7 @@ final class HomeApps {
             "com.Smartdevice.emanual",              // Skyworth: user manual
             "com.google.android.videos",            // Google Play Movies (discontinued)
             "com.disney.starplus",                  // Star+ (merged into Disney+)
+            "com.mediatek.opapp",                   // MediaTek: European satellite operator stub
             "com.tcl.exhibit"));                    // TCL: T-Exhibition
 
     private static final Map<String, Bitmap> TILES = new HashMap<>();   // key → ready card
@@ -129,8 +156,9 @@ final class HomeApps {
     static List<Item> shelf(Context c, boolean extract) {
         List<Item> items = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
+        int max = maxShelf(c);
         for (String pkg : shelfPackages(c)) {
-            if (items.size() >= MAX_SHELF) break;
+            if (items.size() >= max) break;
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
             ResolveInfo ri = pm.resolveActivity(launch, 0);
@@ -168,7 +196,13 @@ final class HomeApps {
         if (custom != null) return custom;
         List<String> out = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
-        for (String[] d : SHELF) if (out.size() < MAX_SHELF && launchIntent(pm, d[2]) != null) out.add(d[2]);
+        Set<String> keys = new HashSet<>();   // one package per app (Fire TV has its own builds of some)
+        for (String[] d : SHELF) {
+            if (out.size() < FEW_APPS && !keys.contains(d[0]) && launchIntent(pm, d[2]) != null) {
+                keys.add(d[0]);
+                out.add(d[2]);
+            }
+        }
         return out;
     }
 
@@ -502,7 +536,7 @@ final class HomeApps {
     // MARK: - Colored logos (shelf)
 
     /** Bump when the way logos are lifted changes (the ones saved on disk are redone). */
-    private static final int LOGO_VERSION = 2;
+    private static final int LOGO_VERSION = 3;
 
     private static Bitmap shelfLogo(Context c, String key, String pkg, String mode, boolean extract) {
         synchronized (LOGOS) {
@@ -579,11 +613,14 @@ final class HomeApps {
         Drawable d = bannerDrawable(c, pkg);
         if (d == null) return null;
         final int w = 768, h = 432;
-        Bitmap src = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(src);
+        // The art at its own resolution, then filtered down: the lifting below works at 768×432.
+        float k = detail(d, w, h);
+        Bitmap big = Bitmap.createBitmap(Math.round(w * k), Math.round(h * k), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(big);
         canvas.drawColor(0xFF15161C);
-        d.setBounds(0, 0, w, h);
+        d.setBounds(0, 0, big.getWidth(), big.getHeight());
         d.draw(canvas);
+        Bitmap src = shrink(big, w, h);
         int[] px = new int[w * h];
         src.getPixels(px, 0, w, 0, 0, w, h);
         src.recycle();
@@ -810,12 +847,30 @@ final class HomeApps {
         } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
         }
         if (d == null) return null;
-        Bitmap b = Bitmap.createBitmap(TILE_W, TILE_H, Bitmap.Config.ARGB_8888);
+        // At the art's own resolution (up to 2×), then filtered down: drawn straight at the tile's size it was jagged
+        // on 4K TVs (from Free My TV 1.1).
+        float k = detail(d, TILE_W, TILE_H);
+        int w = Math.round(TILE_W * k), h = Math.round(TILE_H * k);
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(b);
         canvas.drawColor(0xFF15161C);   // banners with transparency sit on a dark background
-        d.setBounds(0, 0, TILE_W, TILE_H);
+        d.setBounds(0, 0, w, h);
         d.draw(canvas);
-        return b;
+        return shrink(b, TILE_W, TILE_H);
+    }
+
+    /** How much larger than w × h the art has detail to draw (1 to 2×). */
+    private static float detail(Drawable d, float w, float h) {
+        int iw = d.getIntrinsicWidth(), ih = d.getIntrinsicHeight();
+        float k = iw > 0 && ih > 0 ? Math.max(iw / w, ih / h) : 2f;
+        return Math.max(1f, Math.min(2f, k));
+    }
+
+    /** Filtered down to w × h (Ui.downscale); the big one is recycled. */
+    private static Bitmap shrink(Bitmap big, int w, int h) {
+        Bitmap out = Ui.downscale(big, w, h);
+        if (out != big) big.recycle();
+        return out;
     }
 
     /** No banner: the app's icon (in its proper shape, with some margin) on a dark card. */

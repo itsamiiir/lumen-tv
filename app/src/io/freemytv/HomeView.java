@@ -223,6 +223,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN);
     private final RectF platterRect = new RectF();
     private int shelfIndex;
+    /** The first app the shelf shows: with more apps than fit, the apps scroll with the focus (All Apps stays put). */
+    private int shelfFirst;
+    private int shelfVisible = 10;
+    /** The apps' part of the glass while scrolling (All Apps and its divider are outside it): tiles show only here. */
+    private float appsLeft, appsRight;
 
     // Moving apps on the shelf (as on Apple TV): hold OK on a tile, then ← → move it, OK drops it, Back cancels. The
     // lifted tile wiggles; the others slide to their new places (each slot's x offset is a spring that returns to 0).
@@ -309,7 +314,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Paint shadowDeep = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Shadows shadows = new Shadows();
-    private final Map<Bitmap, BitmapShader> imageShaders = new WeakHashMap<>();
     private final Matrix imageMatrix = new Matrix();
     private final Paint imageFill = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -422,6 +426,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         data = HomeData.get(a);
         recs = Recs.get(a);
         cont = Continue.get(a);
+        shelfVisible = HomeApps.shelfVisible(a);
         for (int i = 0; i < cwFocus.length; i++) {
             cwFocus[i] = new Spring(0.28f, 0.85f, 0);
             cwRects[i] = new RectF();
@@ -493,6 +498,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         cont.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
+        Photos.importInbox(getContext(), ownReady);   // photos sent from a computer
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -1333,25 +1339,57 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // All Apps, last, sits after a thin divider, like the Dock's.
         boolean divider = n > 1 && shelf.get(n - 1).kind == HomeApps.ALL_APPS;
         float div = divider ? DIVIDER * k : 0;
+        // Up to shelfVisible tiles show; past that the apps scroll and All Apps stays at the end.
+        int slots = Math.min(n, shelfVisible), apps = divider ? n - 1 : n, appSlots = divider ? slots - 1 : slots;
         float glassL = MARGIN * k, glassR = CONTENT_R * k, inner = glassR - glassL - 2 * pad;
         // Tiles in the TV banners' own 16:9, so an app's art is never stretched; never taller than L_TILE_H. The glass
         // keeps its bottom edge, so with more apps it only gets lower.
-        float tw = Math.min(L_TILE_H * 16f / 9 * k, (inner - Math.max(0, n - 1) * gap - div) / Math.max(1, n));
+        float tw = Math.min(L_TILE_H * 16f / 9 * k, (inner - Math.max(0, slots - 1) * gap - div) / Math.max(1, slots));
         float th = tw * 9f / 16;
-        float width = n * tw + Math.max(0, n - 1) * gap + div, left = glassL + pad + (inner - width) / 2f;
+        float width = slots * tw + Math.max(0, slots - 1) * gap + div, left = glassL + pad + (inner - width) / 2f;
         float top = (L_PLATTER_TOP + L_TILE_H) * k - th;
         platterRect.set(glassL, top, glassR, top + th + 2 * pad);
-        float x = left, y = top + pad;
-        dividerX = -1;
-        for (int i = 0; i < n; i++) {
-            if (divider && i == n - 1) {
-                dividerX = x - gap / 2 + div / 2;
-                x += div;
-            }
+        snap(platterRect);
+        shelfFirst = Math.max(0, Math.min(shelfFirst, apps - appSlots));
+        float y = top + pad, x = left - shelfFirst * (tw + gap);
+        for (int i = 0; i < apps; i++) {
             tileRects[i].set(x, y, x + tw, y + th);
+            snap(tileRects[i]);
             x += tw + gap;
         }
+        float end = left + appSlots * (tw + gap);   // just past the last app slot's gap
+        appsLeft = glassL;
+        appsRight = divider ? end - gap / 2 : glassR;
+        dividerX = -1;
+        if (divider) {
+            dividerX = end - gap / 2 + div / 2;
+            float ax = end + div;
+            tileRects[n - 1].set(ax, y, ax + tw, y + th);
+            snap(tileRects[n - 1]);
+        }
         crispLogos.clear();
+    }
+
+    /** Scrolls the apps, one at a time, so the focused one shows: the tiles slide there (unless `snap`). */
+    private void revealShelf(boolean snap) {
+        int n = shelf.size();
+        if (n == 0 || tileRects.length < n) return;
+        boolean divider = n > 1 && shelf.get(n - 1).kind == HomeApps.ALL_APPS;
+        int apps = divider ? n - 1 : n, appSlots = divider ? Math.min(n, shelfVisible) - 1 : Math.min(n, shelfVisible);
+        if (apps <= appSlots || shelfIndex >= apps) return;
+        int first = Math.max(0, Math.min(Math.max(shelfFirst, shelfIndex - appSlots + 1), Math.min(shelfIndex, apps - appSlots)));
+        if (first == shelfFirst) return;
+        float dx = (shelfFirst - first) * (tileRects[0].width() + TILE_GAP * k);
+        for (int i = 0; i < apps; i++) {
+            tileRects[i].offset(dx, 0);
+            if (!snap && i < tileSlide.length) tileSlide[i].value -= dx;
+        }
+        shelfFirst = first;
+        tilesDirty = true;
+        platter.invalidate();   // the arrows
+        if (snap) return;
+        reorderAnim = true;   // the same slides as moving an app
+        wake();
     }
 
     private float dividerX = -1;
@@ -1490,21 +1528,47 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
         }
         if (liftIndex >= 0 && liftIndex < shelf.size() && moveLift.value > 0.02f) top = liftIndex;
+        int n = shelf.size();
+        boolean divider = n > 1 && shelf.get(n - 1).kind == HomeApps.ALL_APPS;
+        int apps = divider ? n - 1 : n;
+        boolean scrolls = n > shelfVisible;
         for (int pass = 0; pass < 2; pass++) {
             for (int i = 0; i < shelf.size(); i++) {
                 if ((pass == 0) == (i == top)) continue;
+                float slid = i < tileSlide.length ? tileSlide[i].value : 0;
+                boolean app = i < apps;
+                // Scrolling: the apps slide in and out at the glass's left edge and at All Apps' divider.
+                if (scrolls && app && (tileRects[i].right + slid <= appsLeft || tileRects[i].left + slid >= appsRight)) continue;
+                if (scrolls && app) {
+                    c.save();
+                    c.clipRect(appsLeft, 0, appsRight, h);
+                }
                 // Moving apps: the tile slides from where it was and the lifted one wiggles (only then: no extra work
                 // otherwise).
                 float dx = i < tileSlide.length ? tileSlide[i].value : 0;
                 float angle = i == liftIndex ? wiggle * moveLift.value : 0;
                 if (dx == 0 && angle == 0) {
                     drawShelfTile(c, i);
-                    continue;
+                } else {
+                    c.save();
+                    c.translate(dx, 0);
+                    c.rotate(angle, tileRects[i].centerX(), tileRects[i].centerY());
+                    drawShelfTile(c, i);
+                    c.restore();
                 }
+                if (scrolls && app) c.restore();
+            }
+        }
+        if (scrolls) {
+            // More apps than fit: an arrow just outside the glass on each side that has more.
+            int appSlots = divider ? shelfVisible - 1 : shelfVisible;
+            float cy = platterRect.centerY(), size = 28 * k, out = 22 * k;
+            int ink = tone(0x99000000, 0xCCFFFFFF);
+            if (shelfFirst + appSlots < apps) Symbols.draw(getContext(), c, "chevron_right", platterRect.right + out, cy, size, ink);
+            if (shelfFirst > 0) {
                 c.save();
-                c.translate(dx, 0);
-                c.rotate(angle, tileRects[i].centerX(), tileRects[i].centerY());
-                drawShelfTile(c, i);
+                c.scale(-1, 1, platterRect.left - out, cy);
+                Symbols.draw(getContext(), c, "chevron_right", platterRect.left - out, cy, size, ink);
                 c.restore();
             }
         }
@@ -1580,7 +1644,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             allAppsLabel.setTextSize(Math.min(21 * k, ih * 0.17f));
             c.drawText(it.label, cx, cy + ih * 0.3f, allAppsLabel);
         } else {
-            if (it.tile != null) roundImage(c, it.tile, cell, r);
+            if (it.tile != null) roundImage(c, it, cell, r);
         }
         if (fc > 0.01f && l < 0.01f) {
             // The focus ring: a faint hairline just outside the tile, barely there (the lift and shadow lead).
@@ -1603,21 +1667,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * 11 that anti-aliased clip costs the GPU a mask on every frame of a focus animation (measured on a Mi Box 3: most of
      * a 49 ms frame), so there the image is the shader of a rounded rectangle instead, which looks the same.
      */
-    private void roundImage(Canvas c, Bitmap image, RectF cell, float r) {
-        if (!Ui.LEGACY) {
-            clip.reset();
-            clip.addRoundRect(cell, r, r, Path.Direction.CW);
-            c.save();
-            c.clipPath(clip);
-            c.drawBitmap(image, null, cell, bitmapPaint);
-            c.restore();
-            return;
-        }
-        BitmapShader shader = imageShaders.get(image);
-        if (shader == null) {
-            shader = new BitmapShader(image, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            imageShaders.put(image, shader);
-        }
+    private void roundImage(Canvas c, HomeApps.Item it, RectF cell, float r) {
+        // Every Android version: an anti-aliased rounded rectangle with the image as its shader. clipPath isn't
+        // anti-aliased on some GPUs (stair-stepped corners on MediaTek TVs; from Free My TV 1.1).
+        Bitmap image = it.tile;
+        if (it.tileShader == null) it.tileShader = new BitmapShader(image, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        BitmapShader shader = it.tileShader;
         imageMatrix.setScale(cell.width() / image.getWidth(), cell.height() / image.getHeight());
         imageMatrix.postTranslate(cell.left, cell.top);
         shader.setLocalMatrix(imageMatrix);
@@ -1696,23 +1751,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float scale = (float) Math.sqrt(bw * bh * 0.085f / (lw * lh * Math.max(0.08f, it.logoInk))) * it.logoScale;
         scale = Math.min(scale, Math.min(bw * 0.76f / lw, bh * 0.58f / lh));
         if (rest) scale /= 1 + FOCUS_GROW;
-        Bitmap out = downscale(src, Math.round(lw * scale), Math.round(lh * scale));
+        Bitmap out = Ui.downscale(src, Math.round(lw * scale), Math.round(lh * scale));
         crispLogos.put(key, out);
-        return out;
-    }
-
-    /** Halves the size while it can (a 2×2 average, no aliasing), then finishes at the exact size. */
-    private static Bitmap downscale(Bitmap src, int w, int h) {
-        w = Math.max(1, w);
-        h = Math.max(1, h);
-        Bitmap b = src;
-        while (b.getWidth() / 2 >= w && b.getHeight() / 2 >= h) {
-            Bitmap half = Bitmap.createScaledBitmap(b, b.getWidth() / 2, b.getHeight() / 2, true);
-            if (b != src) b.recycle();
-            b = half;
-        }
-        Bitmap out = Bitmap.createScaledBitmap(b, w, h, true);
-        if (b != src && b != out) b.recycle();
         return out;
     }
 
@@ -1767,6 +1807,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < cwRects.length; i++) {
             float cx = left + i * (CW_W + CW_GAP) * k;
             cwRects[i].set(cx, y, cx + CW_W * k, y + CW_H * k);
+            snap(cwRects[i]);
         }
         if (!cwItems.isEmpty()) y += CW_H * k + gap;
         // The dock: inputs, a hairline, shortcuts, in one row like the app shelf.
@@ -1779,6 +1820,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < n; i++) {
             if (i == drawerInputs && i > 0) x += groupGap - itemGap;
             drawerRects[i].set(x, top, x + tw, dockRect.bottom - pad);
+            snap(drawerRects[i]);
             x += tw + itemGap;
         }
         float cardsTop = dockRect.bottom + gap, split = left + (right - left) * 0.585f;
@@ -1786,6 +1828,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // A card that is off gives its room to the other one.
         weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
         quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
+        snap(weatherCard);
+        snap(dockRect);
         drawerDirty = true;
     }
 
@@ -1906,7 +1950,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         Bitmap img = cont.image(e);
         if (img != null) {
-            cropImage(c, img, cwCell, r);
+            cropImage(c, img, cont.shader(img), cwCell, r);
         } else {
             drawerGlass(c, cwCell, r, 0x14000000, 6 * k);
         }
@@ -2134,6 +2178,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Sets the springs' targets from the current focus (snap: no animation). */
     private void retarget(boolean snap) {
+        revealShelf(snap);
         // Only the group whose focus changed is redrawn (moving along the shelf doesn't redraw the hero or capsule).
         boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
@@ -2235,7 +2280,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             float x = left + col * (GRID_W + GRID_GAP) * k;
             gridCell.set(x, y, x + GRID_W * k, y + GRID_H * k);
             float f = gridFocus[i].value;
-            drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, f, 0.08f);
+            drawCard(c, others.get(i), gridCell, GRID_RADIUS * k, f, 0.08f);
             if (sheetOpen && i == gridIndex) focusedCell.set(cell);
             gridLabel.setColor(blend(tone(0x991C1C1E, 0x99FFFFFF), tone(L_INK, 0xFFFFFFFF), Ui.clamp(f)));
             c.drawText(gridLabels[i], gridCell.centerX(), gridCell.bottom + (40 + 6 * f) * k, gridLabel);
@@ -2243,7 +2288,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /** 16:9 sheet card. Focused (the shelf's subtle focus): it grows, with a shadow, a soft sheen and a thin border. */
-    private void drawCard(Canvas c, Bitmap image, RectF base, float radius, float f, float grow) {
+    private void drawCard(Canvas c, HomeApps.Item item, RectF base, float radius, float f, float grow) {
         float s = 1 + grow * f;
         float cx = base.centerX(), cy = base.centerY();
         cell.set(cx - base.width() * s / 2, cy - base.height() * s / 2, cx + base.width() * s / 2, cy + base.height() * s / 2);
@@ -2255,7 +2300,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             shadow.setColor(Ui.alpha(0xFF000000, 0.55f * fc));
             shadows.draw(c, tmp, r, SHADOW_BLUR * k, shadow);
         }
-        if (image != null) roundImage(c, image, cell, r);
+        if (item.tile != null) roundImage(c, item, cell, r);
         if (f > 0.01f) {
             float bh = base.height();
             if (cardSheen == null || cardSheenH != bh) {
@@ -3134,7 +3179,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = picksOn() ? 0 : NT; i < NT + lightButtons.size(); i++) if (tabShown(i)) out.add(a11yId(Z_TOP, i));
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
-        for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
+        for (int i = 0; i < shelf.size(); i++) {
+            boolean shown = i == shelf.size() - 1 || (i >= shelfFirst && i < shelfFirst + shelfVisible - 1) || shelf.size() <= shelfVisible;
+            if (shown) out.add(a11yId(Z_SHELF, i));   // TalkBack: the apps on screen (and All Apps)
+        }
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
         if (drawerOpen && Prefs.quotes() && HomeData.active().length > 0) out.add(a11yId(WIDGETS, 1));
@@ -3347,6 +3395,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < NT; i++) {
             float tw = Math.max(lTabOn.measureText(tabs()[i]), lTab.measureText(tabs()[i]));
             topRects[i].set(x, tabTop, x + tw + 2 * pad, tabBottom);
+            snap(topRects[i]);
             x = topRects[i].right + 4 * k;
         }
         float b = L_BUTTON * k, right = CONTENT_R * k, cy = L_BUTTON_CY * k;
@@ -3384,6 +3433,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int j = 0; j < 3; j++) {
             float x = slotX(j, focusSlot);
             cardRects[j].set(x, top, x + rowW(j, focusSlot), top + ch);
+            snap(cardRects[j]);
         }
     }
 
@@ -3495,7 +3545,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Bitmap img = b == null ? null : (asWide ? b.wide : b.tall);
         boolean poster = !asWide && b != null && b.poster;   // the official poster: its title is on it already
         if (img != null) {
-            cropImage(c, img, cell, r);
+            cropImage(c, img, b.shader(img), cell, r);
         } else {
             fill.setShader(null);
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
@@ -3574,7 +3624,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /** `image` center-cropped to `cell`'s shape (it never stretches while a card changes width), rounded corners. */
-    private void cropImage(Canvas c, Bitmap image, RectF cell, float r) {
+    private void cropImage(Canvas c, Bitmap image, BitmapShader shader, RectF cell, float r) {
         float iw = image.getWidth(), ih = image.getHeight(), cellAspect = cell.width() / cell.height();
         if (iw / ih > cellAspect) {
             int cw = Math.round(ih * cellAspect);
@@ -3584,11 +3634,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             srcRect.set(0, Math.round((ih - chh) / 2), (int) iw, Math.round((ih + chh) / 2));
         }
         // The image as the shader of a rounded rectangle (no anti-aliased clip mask on every frame of a slide).
-        BitmapShader shader = imageShaders.get(image);
-        if (shader == null) {
-            shader = new BitmapShader(image, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            imageShaders.put(image, shader);
-        }
+        if (shader == null) return;
         srcF.set(srcRect);
         imageMatrix.setRectToRect(srcF, cell, android.graphics.Matrix.ScaleToFit.FILL);
         shader.setLocalMatrix(imageMatrix);
@@ -3621,10 +3667,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // A wallpaper chosen in Home Settings takes the picks' place (it arrives a moment later the first time).
         Backdrop wall = Wallpapers.get(getContext(), this::wallpaperReady);
         if (wall != null) b = wall;
-        if (cards.isEmpty() || b != null) showBackdrop(b);
+        // Without suggestions and without a wallpaper, one of your photos (My Photos), a new one every hour.
+        boolean own = wall == null && !picksOn() && Photos.on(getContext());
+        if (own) b = Photos.backdrop(getContext(), ownReady);
+        if ((cards.isEmpty() && !own) || b != null) showBackdrop(b);
         heroDirty = true;
         spoken.focusMoved();    // new picks under the focused card
     }
+
+    /** Your photo's background is ready, or new photos came in: draw it. */
+    private final Runnable ownReady = () -> {
+        if (running) updateCards();
+    };
 
     /** 4 with the Stremio tab, else 3. */
     private int tabCount() {
@@ -3963,6 +4017,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     // MARK: - Helpers
+
+    /** Rounds a shape's edges to whole pixels (crisp at rest; a scale animation moves them again). */
+    private static void snap(RectF r) {
+        r.set(Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom));
+    }
 
     private static float smoothstep(float e0, float e1, float x) {
         float t = Ui.clamp((x - e0) / (e1 - e0));

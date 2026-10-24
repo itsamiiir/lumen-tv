@@ -130,6 +130,22 @@ final class Prefs {
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 
+    /** Your photos (Photos: sent from a computer or a USB stick) on the screensaver, once imported. */
+    static boolean photos() { return sp().getBoolean("photos", true); }
+    static void setPhotos(boolean on) { put("photos", on); }
+
+    /**
+     * Reads the settings again from the file: for the screensaver in the main process on Android 11 (ScreensaverAlone),
+     * which otherwise keeps the values it first read, whatever the settings screen in :home saves.
+     */
+    @SuppressWarnings("deprecation")
+    static void reload() {
+        String before = language();
+        app.getSharedPreferences("settings", Context.MODE_MULTI_PROCESS);
+        version++;
+        if (!language().equals(before)) Ui.applyLanguage();
+    }
+
     /** Lumen shows no prices: the quotes widget and its coins are off (and out of Home Settings). */
     static boolean quotes() { return false; }
     static void setQuotes(boolean on) { put("quotes", on); }

@@ -67,6 +67,8 @@ final class Continue {
     private final List<Entry> history = new ArrayList<>();
     private volatile List<Entry> stremio = new ArrayList<>();
     private final Map<String, Bitmap> images = new LinkedHashMap<>(16, 0.75f, true);
+    /** Each image's shader for the rounded card, dropped with its image (a shader holds its bitmap). */
+    private final Map<Bitmap, android.graphics.BitmapShader> shaders = new java.util.HashMap<>();
     private final Set<String> loading = new HashSet<>();
     private volatile long stremioAt;
     private volatile boolean fetching;
@@ -262,6 +264,13 @@ final class Continue {
 
     // MARK: - Images
 
+    /** The shader that draws a card image from `image` (same lock as the images). */
+    android.graphics.BitmapShader shader(Bitmap image) {
+        synchronized (images) {
+            return shaders.get(image);
+        }
+    }
+
     /** The card's image, or null (it loads in the background and the row is told). */
     Bitmap image(Entry e) {
         if (e.backdrop == null) return null;
@@ -289,7 +298,8 @@ final class Continue {
                 loading.remove(path);
                 if (card != null) {
                     images.put(path, card);
-                    while (images.size() > 12) images.remove(images.keySet().iterator().next());
+                    shaders.put(card, new android.graphics.BitmapShader(card, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
+                    while (images.size() > 12) shaders.remove(images.remove(images.keySet().iterator().next()));
                 }
             }
             if (card != null) changed();

@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- After the TV boots (and after a TV update), checks that Free My TV mode is still as you left it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- My Photos: reads the photos on a USB stick once, when you import them (Home Settings). -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!-- Android 11+: without this list the app can't "see" the other apps (getLeanbackLaunchIntentForPackage
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
@@ -15,21 +18,29 @@
     <queries>
         <package android:name="com.netflix.ninja" />
         <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.amazon.firetv.youtube" />
         <package android:name="com.amazon.amazonvideo.livingroom" />
+        <package android:name="com.amazon.firebat" />
+        <package android:name="com.amazon.avod" />
         <package android:name="com.disney.disneyplus" />
         <package android:name="com.wbd.stream" />
         <package android:name="com.hbo.hbonow" />
         <package android:name="com.apple.atve.androidtv.appletv" />
         <package android:name="com.apple.atve.sony.appletv" />
+        <package android:name="com.apple.atve.amazon.appletv" />
         <package android:name="com.hulu.livingroomplus" />
+        <package android:name="com.hulu.plus" />
         <package android:name="com.cbs.ott" />
         <package android:name="com.peacocktv.peacockandroid" />
+        <package android:name="com.peacock.peacockfiretv" />
         <package android:name="com.globo.globotv" />
         <package android:name="com.spotify.tv.android" />
         <package android:name="com.tcl.tv" />
         <package android:name="com.google.android.tv" />
         <package android:name="com.mediatek.wwtv.tvcenter" />
         <package android:name="com.sony.dtv.tvx" />
+        <package android:name="com.amazon.tv.livetv" />
+        <package android:name="com.amazon.mediatek.livetv" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -96,6 +107,27 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Fire TV: the same home screen opened as a regular app (no resumeWhilePausing, which leaves window focus on
+             Amazon's paused launcher on Fire OS). -->
+        <activity
+            android:name=".FireHomeActivity"
+            android:process=":home"
+            android:exported="false"
+            android:label="Free My TV"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.freemytv.settings"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/FreeMyTV.Home" />
+
+        <!-- tools/photos.py writes photos here where adb can't reach the app's external folder (Android 11, Fire OS 8);
+             only adb's shell may write (PhotoInbox checks). -->
+        <provider
+            android:name=".PhotoInbox"
+            android:authorities="io.freemytv.photos"
+            android:exported="true" />
 
         <service
             android:name=".Screensaver"

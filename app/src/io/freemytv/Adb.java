@@ -1,11 +1,14 @@
 package io.freemytv;
 
 import android.content.Context;
+import android.os.Build;
+import android.os.SystemClock;
 import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -72,7 +75,7 @@ final class Adb implements Closeable {
             s.connect(new InetSocketAddress("127.0.0.1", 5555), 3000);
         } catch (IOException e) {
             s.close();
-            throw new IOException("debugging is off on the TV (port 5555 closed)");
+            throw new IOException(Ui.tr("debugging is off on the TV (port 5555 closed)"));
         }
         Adb adb;
         try {
@@ -89,15 +92,15 @@ final class Adb implements Closeable {
                 Message m;
                 try {
                     m = adb.read();
-                } catch (SocketTimeoutException e) {
-                    throw new IOException(offeredKey ? "debugging permission wasn't accepted on the TV" : "the TV's ADB didn't respond");
+                } catch (EOFException | SocketTimeoutException e) {
+                    throw new IOException(offeredKey ? Ui.tr("debugging permission wasn't accepted on the TV") : Ui.tr("the TV's ADB didn't respond"));
                 }
                 if (m.command == CNXN) {
                     s.setSoTimeout(20_000);
                     return adb;
                 }
-                if (m.command == STLS) throw new IOException("the TV asked for TLS (wireless debugging); use USB debugging");
-                if (m.command != AUTH || m.arg0 != AUTH_TOKEN) throw new IOException("unexpected reply from ADB");
+                if (m.command == STLS) throw new IOException(Ui.tr("the TV asked for TLS (wireless debugging); use USB debugging"));
+                if (m.command != AUTH || m.arg0 != AUTH_TOKEN) throw new IOException(Ui.tr("unexpected reply from ADB"));
                 if (!signed) {
                     adb.send(AUTH, AUTH_SIGNATURE, 0, sign(keys.getPrivate(), m.data));
                     signed = true;
@@ -106,15 +109,56 @@ final class Adb implements Closeable {
                     adb.send(AUTH, AUTH_RSAPUBLICKEY, 0, publicKeyBlob(keys.getPublic()));
                     offeredKey = true;
                     if (approval != null) approval.waiting();
-                    s.setSoTimeout(approvalMs);
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        s.setSoTimeout(approvalMs);
+                    } else {
+                        // Android 8 to 10 hand the answer to the first connection that offered a key (on 10, or signed
+                        // in) while it stays open, often the computer's adb (#221). "Always allow" saves our key, so a
+                        // new connection that only signs gets in.
+                        long until = SystemClock.elapsedRealtime() + approvalMs;
+                        while (adb.in.available() == 0) {
+                            if (SystemClock.elapsedRealtime() > until) {
+                                throw new IOException(Ui.tr("debugging permission wasn't accepted on the TV"));
+                            }
+                            SystemClock.sleep(2000);
+                            Adb fresh = signedIn(keys);
+                            if (fresh != null) {
+                                adb.close();
+                                return fresh;
+                            }
+                        }
+                    }
                 } else {
-                    throw new IOException("the TV rejected the app's key");
+                    throw new IOException(Ui.tr("the TV rejected the app's key"));
                 }
             }
         } catch (IOException | RuntimeException e) {
             adb.close();
             throw e;
         }
+    }
+
+    /** A new connection that only signs (it never offers the key, so no second prompt); null while the TV doesn't know it. */
+    private static Adb signedIn(KeyPair keys) {
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress("127.0.0.1", 5555), 3000);
+            s.setSoTimeout(5000);
+            Adb adb = new Adb(s);
+            adb.send(CNXN, VERSION, MAX_DATA, "host::\0".getBytes(StandardCharsets.US_ASCII));
+            Message m = adb.read();
+            if (m.command == AUTH && m.arg0 == AUTH_TOKEN) {
+                adb.send(AUTH, AUTH_SIGNATURE, 0, sign(keys.getPrivate(), m.data));
+                m = adb.read();
+            }
+            if (m.command == CNXN) {
+                s.setSoTimeout(20_000);
+                return adb;
+            }
+        } catch (IOException | RuntimeException ignored) {
+        }
+        try { s.close(); } catch (IOException ignored) {}
+        return null;
     }
 
     /** Runs a command in the TV's shell and returns its output (stdout and stderr together). */
@@ -132,7 +176,7 @@ final class Adb implements Closeable {
                 result.write(m.data);
                 send(OKAY, local, m.arg0, null);
             } else if (m.command == CLSE) {
-                if (remote == 0 && m.arg0 == 0) throw new IOException("ADB refused the command");
+                if (remote == 0 && m.arg0 == 0) throw new IOException(Ui.tr("ADB refused the command"));
                 send(CLSE, local, m.arg0, null);
                 return result.toString("UTF-8");
             }
@@ -154,8 +198,8 @@ final class Adb implements Closeable {
         int length = b.getInt();
         b.getInt(); // checksum (newer adbd doesn't check it)
         int magic = b.getInt();
-        if ((m.command ^ 0xffffffff) != magic) throw new IOException("invalid ADB message");
-        if (length < 0 || length > 1024 * 1024) throw new IOException("ADB message too large");
+        if ((m.command ^ 0xffffffff) != magic) throw new IOException(Ui.tr("invalid ADB message"));
+        if (length < 0 || length > 1024 * 1024) throw new IOException(Ui.tr("ADB message too large"));
         m.data = new byte[length];
         in.readFully(m.data);
         return m;

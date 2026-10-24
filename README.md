@@ -34,6 +34,9 @@ Set up in about 30 minutes with Claude Code. One button brings back your TV's or
 - **A second page one press down.** Continue Watching, your HDMI inputs and shortcuts in one dock, and the weather.
 - **Frosted glass, wallpapers and soft click sounds.** A large clock, light or dark by your city's sunset, and a
   screensaver that matches.
+- **Your own photos.** Send up to 100 from your computer or import them from a USB stick: the screensaver shows
+  them as a slideshow. [How →](#your-own-photos)
+- **Any number of apps on the shelf.** Past ten it scrolls, with All Apps always at the end.
 - **Fast.** Suggestion images are ready as soon as the TV turns on; the home screen uses no CPU while you're in an app.
 - **Safe.** No root, nothing uninstalled, and one button brings the factory home screen back.
 
@@ -118,11 +121,31 @@ frosted glass shaders need Android 13; on 9 to 12 the glass is drawn with simple
 | **Google TV / Android TV, Android 9 or newer**: Sony Bravia, TCL, Vu, Xiaomi, Hisense, Philips, OnePlus, Toshiba (Android models) | ✅ Yes. Built and tested on a Vu 75″ Vibe (Google TV, Android 12). |
 | **Streamers**: Chromecast with Google TV, Google TV Streamer, NVIDIA Shield, Mi Box, onn 4K | ✅ Yes, and the easy way to bring it to **any** TV with HDMI. |
 | **Samsung (Tizen), LG (webOS)** | ⚠️ Only the original Free My TV's web version, without Lumen's redesign. |
-| **Fire TV, Roku, Apple TV** | ❌ No (plug in a Google TV streamer instead). |
+| **Amazon Fire TV** | ⚠️ As an app only: Amazon keeps the Home button, so the app's icon opens the home screen, and switching is refused (safely). |
+| **Roku, Apple TV** | ❌ No (plug in a Google TV streamer instead). |
 
 **Not a Vu?** Every brand has its own built-in apps (picture, sound, HDMI) that must be left alone and its own promo
 apps that can be turned off. Claude Code checks your TV and adds them before switching; it's part of the setup.
 Older or 1 GB TVs get a lighter graphics mode automatically.
+
+## Your own photos
+
+The screensaver can show your own photos (up to 100) instead of the suggestions' pictures. Each one is imported once:
+turned upright, cropped to 16:9, resized for the TV and stripped of its location data. A wallpaper you pick in Home
+Settings still comes first; without suggestions, one of your photos is also the home screen's background, a new one
+every hour.
+
+- **From your computer** (the TV and computer on the same Wi-Fi):
+  ```bash
+  python3 tools/photos.py 192.168.1.50 beach.jpg hills.jpg Holidays/
+  ```
+  Or ask Claude: *"send these photos to my TV"*. They show up the next time the home screen, the screensaver or
+  Free My TV's settings open.
+- **From a USB stick:** plug it into the TV, then *Free My TV → Home Settings → My Photos* → OK → *Import from a USB
+  stick*. The TV asks once for permission to read the stick. It finds the photos in its folders (an even sample when
+  there are more than 100), and the stick can come out afterwards.
+
+*My Photos* in Home Settings turns them on or off with ← →; OK also removes them all.
 
 ## What Continue Watching can and can't show
 
@@ -134,6 +157,13 @@ Older or 1 GB TVs get a lighter graphics mode automatically.
   pick a movie there, Lumen can't see it. Those apps do report what you're watching to Android's "Watch Next" list,
   but Android lets only the TV's built-in home screen read it: the permission is reserved for system apps and can't
   be granted to another app, not even over adb. For those, resume from the app's own "Continue Watching" row.
+
+## Voice search
+
+Voice commands like "turn up the volume" or "open YouTube" keep working. **Searching for a film or show by voice**
+("Hey Google, show me Jawan") doesn't: on Google TV those results open in Google TV's own home app, which the switch
+turns off. Search inside the app instead (YouTube, Netflix and Prime Video have voice search), or go back to
+*Original* for a moment.
 
 ## Settings
 

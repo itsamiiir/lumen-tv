@@ -75,6 +75,26 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
 - Not taken: their translation catalogue, the LG/Samsung, prices and top-button changes, and their Android 8–12
   glass change (Lumen's glass reads the frosted image there).
 
+## From Free My TV 1.1 (24 Oct)
+
+- **My Photos:** your photos in the screensaver, sent from a computer (`tools/photos.py`, adb into the app's folder, or
+  its `PhotoInbox` on Android 11) **or imported from a USB stick** (Home Settings → My Photos; Lumen keeps the stick
+  import the original removed, through the same import). A chosen wallpaper still comes first.
+- **Shelf of any size:** up to 10 tiles show, the apps scroll with the focus and All Apps stays at the end; arrows
+  outside the glass; low-memory TVs keep 8. The shelf editor shows a check next to the apps on it.
+- **Correct streaming apps:** "… Amazon Channel" entries are skipped and Apple TV is only TMDB's streaming service
+  (350), not the Apple TV Store (rent or buy).
+- **Memory leak fixed:** each image's shader lives with its image (a cache in HomeView kept every card drawn).
+- **Sharper on MediaTek / 4K:** rounded tiles drawn anti-aliased (no clipPath), images and icons shrunk in steps of
+  at most 2×, shapes on whole pixels at rest.
+- **Home Settings scrolls** past ten rows; the screensaver re-reads settings on Android 11 and refetches the weather
+  when the city changed.
+- **Safety:** onn 4K and Amazon Fire TV system apps protected; on Fire TV the switch is refused and the app's icon
+  opens the home screen; two connection fixes (Android 8–10 with a computer still connected, a dropped connection).
+- **Fixed:** with Remote Buttons hidden, *TV Settings* in the main menu opened the hidden screen.
+- Not taken: the original's new logo-cutting method (Lumen's Apple TV-style icons depend on the current one) and
+  its glass rewrite for Android 8–12.
+
 ## Settings app
 
 - Restyled in Lumen's dark look (a still gray gradient instead of the animated blue sky, which redrew 10 times a
