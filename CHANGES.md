@@ -95,6 +95,18 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
 - Not taken: the original's new logo-cutting method (Lumen's Apple TV-style icons depend on the current one) and
   its glass rewrite for Android 8–12.
 
+## Smoother (25 Oct)
+
+- **Up from any suggestion** goes to the tabs, on the selected one; up again reaches the corner buttons (as in Free
+  My TV 1.1; Lumen used to jump from the right-hand cards straight to the buttons).
+- **Page 2 slides without stutter**: nothing is repainted while it moves. The background's veil is its own flat
+  layer, page 2 is painted just before it starts moving, the top half keeps its GPU copy while hidden, the focused
+  app settles as page 2 opens and grows once the shelf has landed, and the shelf's glass is painted again only if it
+  changed. Measured on the Vu 75 (frames reaching the screen): stalls during the slide went from 1–2 per opening,
+  some mid-slide, to none in most openings.
+- **Moving along the shelf**: focus shadows are pre-blurred on every Android (Android 12 blurred them again on the CPU
+  on every frame of a focus animation): 6 stalls in four moves → 0–2, half the GPU time.
+
 ## Settings app
 
 - Restyled in Lumen's dark look (a still gray gradient instead of the animated blue sky, which redrew 10 times a

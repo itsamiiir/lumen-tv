@@ -151,6 +151,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, dotsLayer;
     /** The shelf's smoked glass on page 2, over the frosted shelf: it fades by its opacity alone (nothing redrawn). */
     private final Layer smokeLayer;
+    // Page 2's veil over the background (light by day, dark at night): a plain color whose opacity follows the
+    // drawer, so the background isn't drawn again on every frame of the slide (it was, with a color filter).
+    private final View veilLayer;
+    private int veilShown = 0;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -291,6 +295,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Frames
     private boolean running, tilesDirty, statusDirty, heroDirty, drawerDirty, gridDirty, motionDirty = true;
     private boolean drawerWasMoving, idle;
+    // Back from page 2: the focused app grows once the shelf has (almost) landed, not while it slides: its growing
+    // redraws the tiles layer on every frame, which on the Vu 75 dropped frames in the middle of the slide.
+    private boolean tilesHeld;
+    private static final float SHELF_LANDED = 0.05f;
+    // Opening page 2: its layer, the smoked glass and the shelf are painted first (with page 2 still transparent), and
+    // the slide starts OPEN_PREP frames later, so that work doesn't land on the slide's first frames (on the Vu 75 it
+    // dropped one to three frames there).
+    private int openPrep;
+    private static final int OPEN_PREP = 2;
+    // Where the shelf's glass was last painted (it reads the background under it): back home, it's painted again only
+    // if that changed (the liquid glass costs a 50 ms frame, right as the smoke fades and the focused app grows).
+    private float platterDrawnAt;
     private long lastNanos, resumedAt, lastStep;
     private static final long BURST_MS = 1500;
     private int w, h;
@@ -331,9 +347,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private LinearGradient[] tileShaders = new LinearGradient[0];
     private LinearGradient tileGlow, cardSheen;
     private float tileShaderH, cardSheenH;
-    private android.graphics.ColorFilter veilFilter;
-    private float veilAmount = -1;
-    private int veilColor;
     private HomeData.Weather textWeather;
     private long textPricesAt = -1, textMinute = -1;
     private int textPrefs = -1;
@@ -374,7 +387,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case SKY: drawSky(c); break;
                 case HERO: drawLightTop(c); break;
                 case STATUS: drawLightButtons(c); break;
-                case PLATTER: drawPlatter(c); break;
+                case PLATTER:
+                    platterDrawnAt = getTranslationY();
+                    drawPlatter(c);
+                    break;
                 case SMOKE_LAYER: drawSmoke(c); break;
                 case TILES: drawTiles(c); break;
                 case DOTS: drawRowDots(c); break;
@@ -443,6 +459,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         status = new Layer(a, STATUS);
         platter = new Layer(a, PLATTER);
         smokeLayer = new Layer(a, SMOKE_LAYER);
+        veilLayer = new View(a) {
+            // One flat color: faded straight onto the screen, without an offscreen pass (a full-screen one on every frame).
+            @Override public boolean hasOverlappingRendering() {
+                return false;
+            }
+        };
         tiles = new Layer(a, TILES);
         drawerLayer = new Layer(a, DRAWER);
         sheetLayer = new Layer(a, SHEET);
@@ -452,14 +474,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Not on Android 9 to 11: on older GPUs (a Mi Box 3's Mali-450) redrawing and compositing a big layer on every
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
-        for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, dotsLayer, status, platter, smokeLayer, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {heroLayer, status, platter, smokeLayer, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
+        for (View v : new View[] {sky, veilLayer, heroLayer, dotsLayer, status, platter, smokeLayer, tiles, drawerLayer, sheetLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
         setContentDescription("Free My TV");
         drawerLayer.setVisibility(INVISIBLE);
         smokeLayer.setVisibility(INVISIBLE);
+        veilLayer.setVisibility(INVISIBLE);
         for (int i = 0; i < topFocus.length; i++) {
             topFocus[i] = new Spring(0.26f, 0.85f, 0);
             topRects[i] = new RectF();
@@ -547,6 +570,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shelfIndex = 0;
         sheetOpen = false;
         drawerOpen = false;
+        openPrep = 0;
         if (animated) {
             sheet.target = 0;
             drawer.target = 0;
@@ -611,6 +635,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
         measure(sky, width, height);
+        measure(veilLayer, width, height);
         measure(heroLayer, width, Math.round(836 * kk));   // down to the row's page dots, just above the shelf
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
@@ -633,6 +658,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = r - l, height = b - t;
         float kk = width / 1920f;
         sky.layout(0, 0, width, height);
+        veilLayer.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
         place(platter, 0, Math.round(750 * kk));
@@ -767,6 +793,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastNanos = frameTimeNanos;
         long up = SystemClock.uptimeMillis();
 
+        if (tilesHeld && (drawerOpen || drawer.value <= SHELF_LANDED)) {
+            tilesHeld = false;
+            tilesDirty |= aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, false);
+        }
         boolean tilesMoving = step(tileFocus, dt);
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
@@ -783,6 +813,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
+        if (openPrep > 0 && --openPrep == 0 && drawerOpen) drawer.target = 1;
         boolean drawerMoving = drawer.step(dt);
         // Back home: once the shelf has landed (its frosted glass redrawn there, under the smoke), the smoke fades.
         if (!drawerOpen && !drawerMoving && !drawerWasMoving) smoke.target = 0;
@@ -793,6 +824,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroFading = tickHeroFade(up);
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
+        if (nightMoving || bgFading) updateVeil();   // tone() follows the night and the background's darkness
 
         if (drawerMoving || sheetMoving || smokeMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
@@ -807,10 +839,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
-        if (drawerMoving || bgFading) sky.invalidate();
+        if (bgFading) sky.invalidate();
         // The shelf glass follows the drawer as it slides (it reads the background where it really is). With shaders
         // that cost ~50 ms a frame, so there it's redrawn once the drawer stops; the flat glass is cheap every frame.
-        if (bgFading || (drawerMoving && scene.flat() && smoke.value < 0.001f) || (drawerWasMoving && !drawerMoving)) {
+        // Landed on page 2 it stays under the smoke; back home it's painted again only if it was painted elsewhere.
+        boolean landed = drawerWasMoving && !drawerMoving && !drawerOpen
+                && Math.abs(platter.getTranslationY() - platterDrawnAt) > 0.5f;
+        if (bgFading || (drawerMoving && scene.flat() && smoke.value < 0.001f) || landed) {
             platter.invalidate();
         }
         drawerWasMoving = drawerMoving;
@@ -854,16 +889,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
         float shift = drawerShift;
         float lift = -d * shift;
-        show(heroLayer, top, lift);
+        // Faded out on page 2 but kept (transparent): a hidden layer loses its GPU copy, and painting the suggestions
+        // again as they come back dropped a frame in the middle of the slide home.
+        boolean keep = !Ui.LEGACY && (drawerOpen || d > 0.001f);
+        show(heroLayer, top, lift, keep);
         show(dotsLayer, top, lift);
-        show(status, top, lift);
+        show(status, top, lift, keep);
         show(platter, home, lift);
         show(smokeLayer, home * Ui.clamp(smoke.value), lift);
         show(tiles, home, lift);
+        updateVeil();
         float da = home * smoothstep(0.1f, 0.6f, dc);
         drawerLayer.setTranslationY((1 - d) * shift);
         drawerLayer.setAlpha(da);
-        drawerLayer.setVisibility(da > 0.002f ? VISIBLE : INVISIBLE);
+        drawerLayer.setVisibility(da > 0.002f || (drawerOpen && !Ui.LEGACY) ? VISIBLE : INVISIBLE);
         sheetLayer.setVisibility(s > 0.001f || sheetOpen ? VISIBLE : INVISIBLE);
         sheetLayer.setAlpha(s);
         float scale = 1.04f - 0.04f * s;
@@ -871,10 +910,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer.setScaleY(scale);
     }
 
+    /** Page 2's veil: the background lightens (by day) or darkens (at night) as the drawer rises. */
+    private void updateVeil() {
+        float amount = tone(0.32f, 0.42f) * Ui.clamp(drawer.value);
+        int color = blend(0xFFFFFFFF, 0xFF000000, night);
+        if (color != veilShown) {
+            veilShown = color;
+            veilLayer.setBackgroundColor(color);
+        }
+        veilLayer.setAlpha(amount);
+        veilLayer.setVisibility(amount > 0.002f ? VISIBLE : INVISIBLE);
+    }
+
     private static void show(View v, float alpha, float translationY) {
+        show(v, alpha, translationY, false);
+    }
+
+    private static void show(View v, float alpha, float translationY, boolean keep) {
         v.setAlpha(alpha);
         v.setTranslationY(translationY);
-        v.setVisibility(alpha > 0.002f ? VISIBLE : INVISIBLE);
+        v.setVisibility(alpha > 0.002f || keep ? VISIBLE : INVISIBLE);
     }
 
     private boolean updateClock() {
@@ -1211,21 +1266,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawSky(Canvas c) {
         drawLightSky(c);
-    }
-
-    /** Blends a color on top (the drawer's veil) as part of drawing the image, without another layer. */
-    private android.graphics.ColorFilter veil(float amount, int color) {
-        if (amount <= 0.002f) return null;
-        amount = Math.round(amount * 255) / 255f;
-        if (amount == veilAmount && color == veilColor) return veilFilter;
-        veilAmount = amount;
-        veilColor = color;
-        float keep = 1 - amount;
-        return veilFilter = new android.graphics.ColorMatrixColorFilter(new float[] {
-            keep, 0, 0, 0, ((color >> 16) & 255) * amount,
-            0, keep, 0, 0, ((color >> 8) & 255) * amount,
-            0, 0, keep, 0, (color & 255) * amount,
-            0, 0, 0, 1, 0});
     }
 
     private void drawImage(Canvas c, Bitmap image, float alpha) {
@@ -1597,7 +1637,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
         tmp.offset(0, (4 + 14 * f + 6 * l) * k);
         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.3f) + tone(0.18f, 0.3f) * fc + 0.14f * Ui.clamp(l)));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+        shadows.drawCached(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         int[] style = TILE_STYLE.get(it.key);
         if (it.logo != null && style != null) {
@@ -1836,7 +1876,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void openDrawer() {
         if (drawerItems.isEmpty()) return;
         drawerOpen = true;
-        drawer.target = 1;
+        openPrep = OPEN_PREP;   // drawer.target = 1 once the layers are painted (onFrame)
+        motionDirty = true;
         cont.refresh();   // Stremio's progress, when it's older than 5 minutes
         click.drawer(true);
         smoke.snap(1);      // the shelf turns to smoked glass now, before it moves
@@ -1853,6 +1894,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = 0; i < drawerFocus.length; i++) drawerFocus[i].snap(zone == Z_DRAWER && i == drawerIndex ? 1 : 0);
         for (int i = 0; i < cwFocus.length; i++) cwFocus[i].snap(zone == Z_CONT && i == cwIndex ? 1 : 0);
+        // The focused app settles now, with the shelf's switch to smoked glass, so the tiles aren't redrawn as they slide.
+        for (Spring f : tileFocus) f.snap(0);
+        tilesHeld = false;
+        tilesDirty = true;
         drawerDirty = true;
     }
 
@@ -1860,6 +1905,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float from = zone == Z_CONT && cwIndex < cwRects.length ? cwRects[cwIndex].centerX() - cwSlide.target * k
                 : drawerIndex < drawerRects.length ? drawerRects[drawerIndex].centerX() : -1;
         drawerOpen = false;
+        openPrep = 0;
         drawer.target = 0;
         click.drawer(false);
         zone = Z_SHELF;
@@ -2180,7 +2226,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void retarget(boolean snap) {
         revealShelf(snap);
         // Only the group whose focus changed is redrawn (moving along the shelf doesn't redraw the hero or capsule).
-        boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
+        int tileTarget = !sheetOpen && zone == Z_SHELF ? shelfIndex : -1;
+        tilesHeld = tileTarget >= 0 && !snap && !drawerOpen && drawer.value > SHELF_LANDED;
+        boolean tilesChanged = aim(tileFocus, tilesHeld ? -1 : tileTarget, snap);
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
         boolean drawerChanged = aim(drawerFocus, !sheetOpen && zone == Z_DRAWER ? drawerIndex : -1, snap);
         drawerChanged |= aim(cwFocus, !sheetOpen && zone == Z_CONT ? cwIndex : -1, snap);
@@ -2298,7 +2346,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.set(cell);
             tmp.offset(0, 16 * k * f);
             shadow.setColor(Ui.alpha(0xFF000000, 0.55f * fc));
-            shadows.draw(c, tmp, r, SHADOW_BLUR * k, shadow);
+            shadows.drawCached(c, tmp, r, SHADOW_BLUR * k, shadow);
         }
         if (item.tile != null) roundImage(c, item, cell, r);
         if (f > 0.01f) {
@@ -3710,12 +3758,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         long up = SystemClock.uptimeMillis();
         float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
         boolean fading = bgFadeAt != 0;
-        // Drawer open: the background lightens (by day) or darkens (at night), as a filter on the drawing itself.
-        android.graphics.ColorFilter v = veil(tone(0.32f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, night));
         if (bgTo == null || (fading && bgFrom == null)) {
             if (lightGradient == null) lightGradient = new LinearGradient(0, 0, 0, h, 0xFFF5F5F7, 0xFFE2E2E7, Shader.TileMode.CLAMP);
             if (nightGradient == null) nightGradient = new LinearGradient(0, 0, 0, h, 0xFF1C1C1E, 0xFF0B0B0D, Shader.TileMode.CLAMP);
-            fill.setColorFilter(v);
             fill.setColor(0xFF000000);
             if (night < 0.999f) {
                 fill.setShader(lightGradient);
@@ -3728,12 +3773,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 fill.setAlpha(255);
             }
             fill.setShader(null);
-            fill.setColorFilter(null);
         }
-        imagePaint.setColorFilter(v);
         if (fading && bgFrom != null) drawLightImage(c, bgFrom, bgTo == null ? 1 - e : 1);
         if (bgTo != null) drawLightImage(c, bgTo, fading ? e : 1);
-        imagePaint.setColorFilter(null);
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
@@ -3907,7 +3949,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.set(cell);
             tmp.offset(0, (6 + 8 * f) * k);
             shadow.setColor(Ui.alpha(0xFF000000, tone(0.1f, 0.3f) + tone(0.14f, 0.2f) * f));
-            shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
+            shadows.drawCached(c, tmp, rad, SHADOW_BLUR * k, shadow);
             scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.55f, 0.5f), tone(0.02f, 0.01f), 12 * k, 8 * k,
                     tone(0.6f, 0.45f), 1 - f);
             if (f > 0.01f) {
@@ -3957,18 +3999,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     }
                     rowMoved();
                 } else if (dy < 0) {
+                    // Up from any card: the tabs, on the selected one (as on Apple TV, and as in Free My TV 1.1); up
+                    // again reaches the corner buttons.
                     zone = Z_TOP;
-                    // Up goes to what is above: the tabs from the first card, the corner buttons from the others.
-                    if (focusSlot == 0 || lightButtons.isEmpty()) {
-                        topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
-                    } else {
-                        float x = cardRects[focusSlot].centerX(), best = Float.MAX_VALUE;
-                        topIndex = NT;
-                        for (int i = 0; i < lightButtons.size(); i++) {
-                            float d = Math.abs(topRects[NT + i].centerX() - x);
-                            if (d < best) { best = d; topIndex = NT + i; }
-                        }
-                    }
+                    topIndex = tab;
                 } else {
                     zone = Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[focusSlot].centerX());
@@ -3982,6 +4016,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (next == topIndex || !tabShown(next)) return true;
                     topIndex = next;
                     if (topIndex < NT) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
+                } else if (dy < 0 && topIndex < NT && !lightButtons.isEmpty()) {
+                    topIndex = NT;   // up from the tabs: the corner buttons, from the leftmost one
                 } else if (dy > 0) {
                     if (cards.isEmpty()) {
                         zone = Z_SHELF;

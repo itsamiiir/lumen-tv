@@ -220,6 +220,13 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   is, never repainted), and prepared images saved in `cache/recs-ready/` (`Backdrop.save`/`load`; bump `Recs.READY`
   when what they hold changes). Page 2 (`HomeView.layoutDrawer`) is centered as one block; the shelf's smoked glass is
   its own layer (`smokeLayer`) that fades by opacity, so no glass is redrawn during the slide.
+- The page-2 slide only moves and fades cached layers: nothing is painted while it moves. The veil is a flat
+  `veilLayer` (not a filter on the sky), the layers that come back stay VISIBLE at alpha 0 (a hidden layer loses its
+  GPU copy), page 2 is painted `OPEN_PREP` frames before it moves, the focused app settles as page 2 opens and grows
+  only after the shelf lands, and focus shadows are `Shadows.drawCached` everywhere (a BlurMaskFilter that changes
+  size is blurred again on the CPU every frame). Measure smoothness on the screen, not with gfxinfo's GPU times
+  (they include queueing): `adb shell dumpsys SurfaceFlinger --latency-clear "io.freemytv/io.freemytv.HomeActivity#0"`,
+  move, then `--latency` with the same name; presents ~16.7 ms apart are 60 fps, 33 or 50 ms are dropped frames.
 - My Photos (`Photos`, `PhotoInbox`, `tools/photos.py`): photos sent by adb into the app's external `files/photos`
   (or through `PhotoInbox` where adb can't reach it, Android 11 and Fire OS 8), or copied from a USB stick
   (`Photos.copyFromSticks`, after READ_EXTERNAL_STORAGE / READ_MEDIA_IMAGES) into the private inbox; `importInbox`

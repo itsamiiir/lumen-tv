@@ -10,11 +10,11 @@ import android.graphics.RectF;
 import java.util.HashMap;
 
 /**
- * Blurred rounded-rectangle shadows for older GPUs. A BlurMaskFilter is rasterized on the CPU and uploaded again every
- * time the shape changes size (every frame of a focus animation): on a Mali-450 (Mi Box 3, Android 9) that alone took
- * ~40 ms a frame. Here each (corner radius, blur) is blurred once into a small alpha bitmap and drawn as a nine-slice
- * (corners as they are, edges and center stretched), tinted with the paint's color.
- * Android 12+ keeps drawing the real BlurMaskFilter.
+ * Blurred rounded-rectangle shadows. A BlurMaskFilter is rasterized on the CPU and uploaded again every time the shape
+ * changes size (every frame of a focus animation): on a Mali-450 (Mi Box 3, Android 9) that alone took ~40 ms a frame,
+ * and on the Vu 75 (Android 12) moving along the shelf took 16 ms of GPU a frame instead of 7.5. Here each (corner
+ * radius, blur) is blurred once into a small alpha bitmap and drawn as a nine-slice (corners as they are, edges and
+ * center stretched), tinted with the paint's color.
  */
 final class Shadows {
     private final HashMap<Long, Bitmap> cache = new HashMap<>();
@@ -24,19 +24,7 @@ final class Shadows {
     private final float[] xs = new float[4], ys = new float[4];
     private final int[] sx = new int[4], sy = new int[4];
 
-    /** Draws `shape` (radius `r`) with `paint`, whose BlurMaskFilter was made with radius `blur`. */
-    void draw(Canvas c, RectF shape, float r, float blur, Paint paint) {
-        if (!Ui.LEGACY) {
-            c.drawRoundRect(shape, r, r, paint);
-            return;
-        }
-        drawCached(c, shape, r, blur, paint);
-    }
-
-    /**
-     * The pre-blurred nine-slice on any Android: for shapes that change size on every frame (the suggestion row while
-     * it slides), where even Android 12's BlurMaskFilter re-rasterizes on the CPU each time.
-     */
+    /** Draws `shape` (radius `r`) as a shadow blurred by `blur`, in `paint`'s color. */
     void drawCached(Canvas c, RectF shape, float r, float blur, Paint paint) {
         int radius = Math.max(0, Math.round(r)), b = Math.max(1, Math.round(blur));
         int m = (int) Math.ceil(b * 1.8f) + 1;        // how far the blur spreads outside the shape
