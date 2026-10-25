@@ -53,6 +53,13 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="android.media.tv" />
         </intent>
+        <!-- Corner buttons (Home Settings > Corner Buttons): offered only when one of these screens is on the TV. -->
+        <intent><action android:name="android.search.action.GLOBAL_SEARCH" /></intent>
+        <intent><action android:name="com.android.tv.action.VIEW_INPUTS" /></intent>
+        <intent><action android:name="android.settings.DISPLAY_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.SOUND_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.WIFI_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.SETTINGS" /></intent>
     </queries>
 
     <uses-feature android:name="android.software.leanback" android:required="false" />

@@ -106,6 +106,11 @@ Google TV and Android TV, built and measured on a Vu 75″ Vibe (Google TV 12, M
   some mid-slide, to none in most openings.
 - **Moving along the shelf**: focus shadows are pre-blurred on every Android (Android 12 blurred them again on the CPU
   on every frame of a focus animation): 6 stalls in four moves → 0–2, half the GPU time.
+- **Corner buttons of your choice** (Home Settings → Corner Buttons): up to five, in any order, from Live TV, HDMI
+  Inputs, AirPlay, Search, All Apps, Wallpaper, the TV's Input Menu, Picture, Sound, Network, TV Settings, Free My TV's
+  settings and each HDMI port. Only what works on the TV is offered; a button only opens a screen (never changes a
+  setting), and one the TV loses is skipped instead of shown broken. Messages and the wallpaper picker fit between
+  the date and the buttons.
 
 ## Settings app
 

@@ -14,6 +14,20 @@ final class Russian {
     static String text(String english) {
         switch (english) {
             case "Live TV": return "Телеканалы";
+            // Corner buttons (Home Settings > Corner Buttons)
+            case "Input Menu": return "Меню источников";
+            case "Picture": return "Изображение";
+            case "Sound": return "Звук";
+            case "Network": return "Сеть";
+            case "Free My TV Settings": return "Настройки Free My TV";
+            case "Corner Buttons": return "Кнопки в углу";
+            case "{n} button": return "{n} кнопка";
+            case "{n} buttons": return "Кнопок: {n}";
+            case "shown, place {n}": return "показана, место {n}";
+            case "not shown": return "не показана";
+            case "OK: choose the round buttons at the top right of the home screen.": return "OK: выбрать круглые кнопки в правом верхнем углу главного экрана.";
+            case "OK adds or removes a button (up to {n}). ← → change the order.": return "OK добавляет или убирает кнопку (до {n}). ← → меняют порядок.";
+            case "Page 2 always keeps Home Settings and TV Settings.": return "На странице 2 всегда остаются настройки главного экрана и ТВ.";
             case "All Apps": return "Приложения";
             case "Settings": return "Настройки";
             case "Home Settings": return "Главный экран";

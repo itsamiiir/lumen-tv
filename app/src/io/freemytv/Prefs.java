@@ -170,6 +170,21 @@ final class Prefs {
         put("shelf", sb.toString());
     }
 
+    /** The corner buttons' keys, in order (Home Settings > Corner Buttons); null = never changed (the defaults). */
+    static List<String> topButtons() {
+        String v = sp().getString("topButtons", null);
+        if (v == null) return null;
+        List<String> out = new ArrayList<>();
+        for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
+        return out;
+    }
+
+    static void setTopButtons(List<String> keys) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : keys) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        put("topButtons", sb.toString());
+    }
+
     // MARK: - Remote buttons
 
     private static String defaultApp(int keyCode) {

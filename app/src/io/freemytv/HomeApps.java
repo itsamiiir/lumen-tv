@@ -59,6 +59,8 @@ final class HomeApps {
     static final int INPUTS = 7;
     /** The wallpaper picker (corner button): ← → previews live, OK keeps, Back cancels. */
     static final int WALLPAPER = 8;
+    /** A screen of the TV's own, opened by its intent action (Item.action) in its package (Item.pkg). */
+    static final int SCREEN = 9;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -66,6 +68,7 @@ final class HomeApps {
         int kind;
         String key, label, pkg, inputId, number;
         String uri;         // opens this address in the app instead of the app's home (a title's page)
+        String action;      // SCREEN: the intent action that opens it
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
         android.graphics.BitmapShader tileShader;   // draws `tile` rounded; lives and goes with the item
@@ -252,6 +255,133 @@ final class HomeApps {
         return shortcut(SETTINGS, "settings", Ui.tr("Ajustes", "Settings"), "settings");
     }
 
+    // MARK: - Corner buttons (the round ones at the top right)
+
+    /** Live TV, HDMI Inputs and Settings until changed in Home Settings > Corner Buttons. */
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList("live", "inputs", "settings"));
+    /** Up to five: messages and the wallpaper picker sit between the header's date and the buttons, and need the room. */
+    static final int MAX_TOP = 5;
+
+    /**
+     * Everything that can be a corner button, in the order the editor lists it. Only what works on this TV: a screen is
+     * offered when an app of the TV's answers its action (exported, and not Android's "open with" chooser), AirPlay when
+     * the TV has an AirPlay input. A button only opens something; none of them changes a setting by itself.
+     */
+    static List<Item> topCandidates(Context c) {
+        List<Item> out = new ArrayList<>();
+        PackageManager pm = c.getPackageManager();
+        if (liveTv(c) != null) out.add(action(LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
+        out.add(action(INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
+        String airPlay = airPlayInput(c);
+        if (airPlay != null) {
+            Item it = action(INPUT, "airplay", "AirPlay", "airplay");
+            it.inputId = airPlay;
+            out.add(it);
+        }
+        addScreen(out, pm, "search", Ui.tr("Busca", "Search"), "search", "android.search.action.GLOBAL_SEARCH");
+        out.add(action(ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
+        out.add(action(WALLPAPER, "wallpaper", Ui.tr("Papel de parede", "Wallpaper"), "wallpaper"));
+        addScreen(out, pm, "input-menu", Ui.tr("Menu de entradas", "Input Menu"), "input", "com.android.tv.action.VIEW_INPUTS");
+        addScreen(out, pm, "picture", Ui.tr("Imagem", "Picture"), "picture", Settings.ACTION_DISPLAY_SETTINGS);
+        addScreen(out, pm, "sound", Ui.tr("Som", "Sound"), "volume", Settings.ACTION_SOUND_SETTINGS);
+        addScreen(out, pm, "network", Ui.tr("Rede", "Network"), "wifi", Settings.ACTION_WIFI_SETTINGS);
+        addScreen(out, pm, "tv-settings", Ui.tr("Ajustes da TV", "TV Settings"), "tv_settings", Settings.ACTION_SETTINGS);
+        out.add(action(SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+        // Each HDMI port, by the name it has on this TV (or its device's).
+        for (Item in : inputs(c, true)) {
+            Item it = action(INPUT, "hdmi" + in.number, in.label, in.symbol);
+            it.inputId = in.inputId;
+            out.add(it);
+        }
+        return out;
+    }
+
+    /** The corner buttons, in order: the saved ones this TV still has (a missing one is skipped, not shown broken). */
+    static List<Item> topButtons(Context c) {
+        List<String> keys = Prefs.topButtons();
+        if (keys == null) keys = TOP_DEFAULT;
+        List<Item> all = topCandidates(c), out = new ArrayList<>();
+        for (String key : keys) {
+            for (Item it : all) {
+                if (it.key.equals(key) && out.size() < MAX_TOP) {
+                    out.add(it);
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The saved buttons as drawn at startup, from their keys alone (no package or input queries: they took ~30 ms on
+     * the UI thread). They can't open anything yet that needs this TV's details (an input's id, a screen's package):
+     * topButtons, run by the loader right after, replaces them with the checked ones.
+     */
+    static List<Item> topButtonsQuick() {
+        List<String> keys = Prefs.topButtons();
+        if (keys == null) keys = TOP_DEFAULT;
+        List<Item> out = new ArrayList<>();
+        for (String key : keys) {
+            Item it = quickTop(key);
+            if (it != null && out.size() < MAX_TOP) out.add(it);
+        }
+        return out;
+    }
+
+    private static Item quickTop(String key) {
+        switch (key) {
+            case "live": return action(LIVE_TV, key, Ui.tr("TV aberta", "Live TV"), "live_tv");
+            case "inputs": return action(INPUTS, key, Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi");
+            case "airplay": return action(INPUT, key, "AirPlay", "airplay");
+            case "search": return action(SCREEN, key, Ui.tr("Busca", "Search"), "search");
+            case "all": return action(ALL_APPS, key, Ui.tr("Todos os Apps", "All Apps"), "apps");
+            case "wallpaper": return action(WALLPAPER, key, Ui.tr("Papel de parede", "Wallpaper"), "wallpaper");
+            case "input-menu": return action(SCREEN, key, Ui.tr("Menu de entradas", "Input Menu"), "input");
+            case "picture": return action(SCREEN, key, Ui.tr("Imagem", "Picture"), "picture");
+            case "sound": return action(SCREEN, key, Ui.tr("Som", "Sound"), "volume");
+            case "network": return action(SCREEN, key, Ui.tr("Rede", "Network"), "wifi");
+            case "tv-settings": return action(SCREEN, key, Ui.tr("Ajustes da TV", "TV Settings"), "tv_settings");
+            case "settings": return action(SETTINGS, key, Ui.tr("Configurações", "Settings"), "settings");
+            default:
+                // An HDMI port: its own name (a device's) comes with the checked list.
+                return key.startsWith("hdmi") ? action(INPUT, key, "HDMI " + key.substring(4), "hdmi") : null;
+        }
+    }
+
+    /** A button's name in the editor: Free My TV's settings and the TV's settings told apart. */
+    static String topName(Item it) {
+        return it.kind == SETTINGS ? Ui.tr("Ajustes do Free My TV", "Free My TV Settings") : it.label;
+    }
+
+    /** `action` as a corner button, if a screen of this TV answers it. */
+    private static void addScreen(List<Item> out, PackageManager pm, String key, String label, String symbol, String action) {
+        ResolveInfo r;
+        try {
+            r = pm.resolveActivity(new Intent(action), PackageManager.MATCH_DEFAULT_ONLY);
+        } catch (RuntimeException e) {
+            return;
+        }
+        // Several apps answering it resolve to the "open with" chooser (package "android"): not a screen to offer.
+        if (r == null || r.activityInfo == null || !r.activityInfo.exported || "android".equals(r.activityInfo.packageName)) return;
+        Item it = action(SCREEN, key, label, symbol);
+        it.action = action;
+        it.pkg = r.activityInfo.packageName;
+        out.add(it);
+    }
+
+    /** The TV's AirPlay receiver, when it is a TV input (MediaTek TVs: Vu, Hisense, TCL...); null without one. */
+    static String airPlayInput(Context c) {
+        TvInputManager tim = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
+        if (tim == null) return null;
+        try {
+            for (TvInputInfo info : tim.getTvInputList()) {
+                if (info.getId().toLowerCase(Locale.ROOT).contains("airplay")) return info.getId();
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
     /** Shortcuts in the bottom drawer. */
     static List<Item> drawerShortcuts() {
         List<Item> items = new ArrayList<>();
@@ -430,7 +560,13 @@ final class HomeApps {
                 intent = liveTv(a);
                 break;
             case INPUT:
+                if (it.inputId == null) return false;
                 intent = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(it.inputId));
+                break;
+            case SCREEN:
+                // Only the app that answered when the button was offered: an action never lands somewhere else.
+                if (it.action == null || it.pkg == null) return false;
+                intent = new Intent(it.action).setPackage(it.pkg);
                 break;
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));

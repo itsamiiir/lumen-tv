@@ -235,6 +235,12 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
 - The shelf scrolls past `HomeApps.shelfVisible` (10; 8 and no scrolling on low-RAM TVs): `HomeView.revealShelf`
   keeps the focused app in view, All Apps stays at the end. Images drawn rounded carry their own shader
   (`Backdrop.shader`, `HomeApps.Item.tileShader`, `Continue.shader`); never cache shaders by bitmap in a map.
+- Corner buttons: `HomeApps.topCandidates` (what this TV can open: screens by intent action, offered only when an
+  exported activity of the TV answers; AirPlay as its TV input), saved as keys in `Prefs.topButtons`, up to
+  `HomeApps.MAX_TOP`, edited in the shelf editor (`editingTop`). At startup `topButtonsQuick` draws them from the keys
+  (no queries on the UI thread); the loader replaces them with `topButtons`. On the Vu, don't test with
+  `com.vt.airplay.action.showSettings`: it leaves an AirPlay settings session that reopens over other apps until
+  closed with Back.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 - LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017; only transform and opacity animate. `web/tv.js` is the

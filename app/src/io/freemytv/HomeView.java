@@ -172,8 +172,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
     private List<Recs.Pick> cards = new ArrayList<>();
     // 3 tabs + up to 4 corner buttons (Live TV, HDMI, Wallpaper, Settings).
-    private final Spring[] topFocus = new Spring[8];
-    private final RectF[] topRects = new RectF[8];
+    private final Spring[] topFocus = new Spring[NT + HomeApps.MAX_TOP];   // the tabs, then the corner buttons
+    private final RectF[] topRects = new RectF[NT + HomeApps.MAX_TOP];
     // The suggestion row (up to 9 per tab): 3 cards show at once; the focused one is wide, the others tall. Moving past
     // either end slides the row by one and loops around. rowStart = position of the first visible card (unbounded:
     // card = cards[floorMod(position, n)]); focusSlot = which of the 3 is focused; cardRects = the 3 slots at rest.
@@ -290,6 +290,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Toasts
     private final ArrayDeque<String> toasts = new ArrayDeque<>();
     private StaticLayout toast;
+    private String toastText;   // what `toast` says (laid out again when the corner buttons change)
     private long toastAt;
 
     // Frames
@@ -587,12 +588,33 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         motionDirty = true;
     }
 
-    /** The corner buttons, with their names in the current language. */
+    /** The corner buttons (Home Settings > Corner Buttons) as saved; reload() checks them against this TV right after. */
     private void makeLightButtons() {
         lightButtons.clear();
-        lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
-        lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+        lightButtons.addAll(HomeApps.topButtonsQuick());
+    }
+
+    /** New corner buttons (changed in Home Settings, or an input came or went): laid out again only if they changed. */
+    private void setLightButtons(List<HomeApps.Item> list) {
+        boolean same = list.size() == lightButtons.size();
+        for (int i = 0; same && i < list.size(); i++) {
+            HomeApps.Item a = list.get(i), b = lightButtons.get(i);
+            same = a.key.equals(b.key) && a.label.equals(b.label) && a.symbol.equals(b.symbol);
+        }
+        if (same) {
+            // Drawn the same: only take the checked items (they know their input or screen), nothing to lay out.
+            for (int i = 0; i < list.size(); i++) lightButtons.set(i, list.get(i));
+            return;
+        }
+        lightButtons.clear();
+        lightButtons.addAll(list);
+        if (zone == Z_TOP && topIndex >= NT + lightButtons.size()) topIndex = lightButtons.isEmpty() ? tab : NT + lightButtons.size() - 1;
+        for (int i = NT; i < topFocus.length; i++) topFocus[i].snap(zone == Z_TOP && i == topIndex ? 1 : 0);
+        layoutLight();
+        if (toast != null) toast = layout(toastText);
+        if (pickingWall) wallLabels();
+        statusDirty = heroDirty = true;
+        wake();
     }
 
     private static String[] tabs() {
@@ -2389,9 +2411,44 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private StaticLayout wallName, wallHint;
     /**
      * Messages and the wallpaper picker sit between the header's date and the top buttons (centered on the screen they
-     * covered the date).
+     * covered the date). Their layer is centered on TOAST_CX; what they draw is centered between MESSAGE_L and the
+     * leftmost corner button, so more buttons narrow them instead of running into them (with the three default buttons
+     * that is TOAST_CX, at most 640 px of text as before).
      */
-    private static final float TOAST_CX = 1165;
+    private static final float TOAST_CX = 1165, MESSAGE_L = 762;
+
+    private float messageRight() {
+        boolean placed = !lightButtons.isEmpty() && topRects[NT].width() > 0;   // laid out (layoutLight)
+        return (placed ? topRects[NT].left : CONTENT_R * k) - 28 * k;
+    }
+
+    /**
+     * Where messages may start: after the header's date and weather (measured, so a long date never runs under them),
+     * and never left of MESSAGE_L.
+     */
+    private float messageLeft() {
+        float left = MESSAGE_L * k;
+        if (!picksOn() || lHeadClock == null || lHeadDate == null || lHeadWx == null || clockText == null) return left;
+        float end = MARGIN * k + lHeadClock.measureText(clockText);
+        if (!amPmText.isEmpty() && lAmPm != null) end += 10 * k + lAmPm.measureText(amPmText);
+        float tx = end + 60 * k, text = lHeadDate.measureText(dateText);   // as drawHeaderClock places them
+        HomeData.Weather wx = data.weather;
+        if (Prefs.weather() && !Double.isNaN(wx.temp)) {
+            String line = HomeData.degrees(wx.temp) + "  " + HomeData.condition(wx.code, wx.isDay);
+            text = Math.max(text, Symbols.width(getContext(), Symbols.weather(wx.code, wx.isDay), 27 * k) + 10 * k
+                    + lHeadWx.measureText(line));
+        }
+        return Math.max(left, tx + text + 32 * k);
+    }
+
+    private float messageCx() {
+        return (messageLeft() + messageRight()) / 2;
+    }
+
+    /** The room for a message's or the picker's box, from after the date to the buttons. */
+    private float messageRoom() {
+        return messageRight() - messageLeft();
+    }
 
     private void startWallpaperPicker() {
         if (drawerOpen) {   // opened from the drawer's Shortcuts: the drawer goes down so the whole screen previews
@@ -2521,10 +2578,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String name = wallIds.isEmpty() ? "" : Wallpapers.label(wallIds.get(wallIndex));
         String hint = (wallIndex + 1) + " / " + wallIds.size() + "   ·   "
                 + Ui.tr("OK para manter · Voltar para cancelar", "OK to keep · Back to cancel");
-        wallName = StaticLayout.Builder.obtain(name, 0, name.length(), wallNamePaint(), Math.round(640 * k))
+        int width = Math.max(1, Math.round(Math.min(640 * k, messageRoom() - 2 * 44 * k)));   // 44: the box's padding
+        wallName = StaticLayout.Builder.obtain(name, 0, name.length(), wallNamePaint(), width)
                 .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build();
-        wallHint = StaticLayout.Builder.obtain(hint, 0, hint.length(), toastPaint, Math.round(640 * k))
-                .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(1).build();
+        wallHint = StaticLayout.Builder.obtain(hint, 0, hint.length(), toastPaint, width)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build();
     }
 
     private TextPaint wallNamePaint;
@@ -2538,9 +2596,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawWallpaperPicker(Canvas c) {
         if (wallName == null) return;
         float padX = 44 * k, padY = 20 * k, gap = 8 * k, chev = 30 * k;
-        float tw = 640 * k, th = wallName.getHeight() + gap + wallHint.getHeight();
+        float tw = wallName.getWidth(), th = wallName.getHeight() + gap + wallHint.getHeight();
         float top = 48 * k;
-        float cx = TOAST_CX * k;
+        float cx = messageCx();
         tmp.set(cx - tw / 2f - padX, top, cx + tw / 2f + padX, top + th + 2 * padY);
         scene.glass(c, tmp, 36 * k, tone(0xFFFFFFFF, SMOKE), tone(0.6f, 0.55f), 0, 0, 0.02f, 1);
         int ink = tone(L_INK, 0xFFFFFFFF);
@@ -2577,6 +2635,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (toast == null && toastPaint != null) {
             String next = toasts.poll();
             if (next != null) {
+                toastText = next;
                 toast = layout(next);
                 toastAt = up;
             }
@@ -2600,7 +2659,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float padX = 28 * k, padY = 18 * k, icon = 26 * k, iconW = Symbols.width(getContext(), "bell", icon);
         float tw = toast.getWidth() + iconW + 16 * k, th = toast.getHeight();
         float toastTop = 64 * k - (1 - a) * 16 * k;
-        float cx = TOAST_CX * k;
+        float cx = messageCx();
         tmp.set(cx - tw / 2f - padX, toastTop, cx + tw / 2f + padX, toastTop + th + 2 * padY);
         int save = c.saveLayerAlpha(tmp.left - 4, tmp.top - 4, tmp.right + 4, tmp.bottom + 4, Math.round(255 * a));
         // Glass and text like the top buttons: white by day, smoked at night.
@@ -2613,7 +2672,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private StaticLayout layout(String text) {
-        int max = Math.round(640 * k);
+        // The box adds 2 × 28 px of padding and the bell (26 px and a 16 px gap) to the text.
+        float bell = toastPaint == null ? 0 : Symbols.width(getContext(), "bell", 26 * k) + 16 * k;
+        int max = Math.round(Math.min(640 * k, messageRoom() - 2 * 28 * k - bell));
         int width = (int) Math.min(max, Math.ceil(Layout.getDesiredWidth(text, toastPaint)));
         return StaticLayout.Builder.obtain(text, 0, text.length(), toastPaint, Math.max(1, width))
                 .setMaxLines(2)
@@ -2663,7 +2724,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final List<HomeApps.Item> st = statusList(c);
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = apps ? HomeApps.others(c) : null;
+            final List<HomeApps.Item> top = apps ? HomeApps.topButtons(c) : null;
             handler.post(() -> {
+                if (top != null) setLightButtons(top);
                 if (s != null) setShelf(withAllApps(s));
                 setStatusItems(st);
                 setDrawerItems(d);

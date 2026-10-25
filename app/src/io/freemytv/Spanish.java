@@ -7,6 +7,20 @@ final class Spanish {
     static String text(String english) {
         switch (english) {
             case "Live TV": return "TV en vivo";
+            // Corner buttons (Home Settings > Corner Buttons)
+            case "Input Menu": return "Menú de entradas";
+            case "Picture": return "Imagen";
+            case "Sound": return "Sonido";
+            case "Network": return "Red";
+            case "Free My TV Settings": return "Ajustes de Free My TV";
+            case "Corner Buttons": return "Botones de la esquina";
+            case "{n} button": return "{n} botón";
+            case "{n} buttons": return "{n} botones";
+            case "shown, place {n}": return "visible, posición {n}";
+            case "not shown": return "no visible";
+            case "OK: choose the round buttons at the top right of the home screen.": return "OK: elige los botones redondos de arriba a la derecha del inicio.";
+            case "OK adds or removes a button (up to {n}). ← → change the order.": return "OK añade o quita un botón (hasta {n}). ← → cambian el orden.";
+            case "Page 2 always keeps Home Settings and TV Settings.": return "La página 2 siempre conserva Ajustes de inicio y Ajustes del TV.";
             case "All Apps": return "Todas las apps";
             case "Settings": return "Ajustes";
             case "Home Settings": return "Ajustes de inicio";
